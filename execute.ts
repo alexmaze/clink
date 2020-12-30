@@ -1,4 +1,4 @@
-import { IRule, IRuleItem } from "./Config.ts";
+import { IRule, IRuleItem } from "./config.ts";
 import { dirname, join } from "https://deno.land/std/path/mod.ts";
 import { exists } from "https://deno.land/std/fs/mod.ts";
 

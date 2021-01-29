@@ -22,6 +22,7 @@ deno run -A --unstable https://alexyan.cc/deno/cm.js <配置文件目录>/config
 
 - [x] 通过 `config.yaml` 配置软链配置文件
 - [x] 自动备份原始文件
+- [x] 支持变量，可以在 rules 的路径定义中使用变量
 - [ ] 增加配置文件分发模式：复制模式（当前是软连接）
 - [ ] 选择历史备份进行还原
 - [ ] 规则执行前后增加脚本 Hook 功能（例如安装软件等）
@@ -29,6 +30,8 @@ deno run -A --unstable https://alexyan.cc/deno/cm.js <配置文件目录>/config
 ### config.yaml
 
 ```yaml
+vars:
+  V2RAY_HOME: /usr/local/etc/v2ray
 rules:
   - name: vim 配置
     files:                      # <可选>文件列表
@@ -37,4 +40,8 @@ rules:
     folders:                    # <可选>文件夹列表，不存在的文件夹会自动创建
       - src: ./.vim/autoload
         dist: ~/.vim/autoload   # 可以使用 ~ 代表当前用户的 home 目录
+  - name: v2ray 配置
+    files:
+      - src: ./v2ray/config.json
+        dist: ${V2RAY_HOME}/config.json
 ```

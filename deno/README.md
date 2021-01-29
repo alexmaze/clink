@@ -1,5 +1,6 @@
 # config-manager 配置管理器
 
+> 本工具基于 Deno 开发，使用前需要先安装 Deno https://deno.land/#installation
 
 使用 `config-manager` 可以方便的把你的配置文件集中保存，只需要在 `config.yaml` 文件中定义文件需要软链的目的地，`config-manager` 就可以帮你将配置文件软链到指定的位置，并将原文件备份起来。
 
@@ -11,6 +12,10 @@
 git clone git@github.com:alexmaze/config-manager.git
 cd config-manager && make install
 cm <配置文件目录>/config.yaml
+
+# or
+
+deno run -A --unstable https://alexyan.cc/deno/cm.js <配置文件目录>/config.yaml
 ```
 
 ### 功能

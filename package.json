@@ -1,0 +1,31 @@
+{
+  "name": "config-manager",
+  "version": "0.0.1",
+  "description": "A configuration file centralized management tool.",
+  "bin": "bin/cm.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexmaze/config-manager.git"
+  },
+  "keywords": [
+    "config",
+    "tool",
+    "dotfiles",
+    "centralized",
+    "management",
+    "sync"
+  ],
+  "author": "Alex Yan <yanhao1991@gmail.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/alexmaze/config-manager/issues"
+  },
+  "homepage": "https://github.com/alexmaze/config-manager#readme",
+  "dependencies": {
+    "commander": "^7.0.0"
+  }
+}

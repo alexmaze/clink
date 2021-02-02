@@ -1,7 +1,7 @@
 import { Command } from "commander"
-import { ICmdProps, NewConfig } from "config"
-import { DisplayResults } from "display"
-import { Execute } from "execute"
+import { Execute } from "./execute"
+import { DisplayResults } from "./display"
+import { ICmdProps, NewConfig } from "./config"
 
 const cmd = new Command()
 
@@ -19,7 +19,7 @@ cmd
   .action(async (props: ICmdProps) => {
     const cfg = await NewConfig(props)
     const results = await Execute(cfg)
-    DisplayResults(results)
+    DisplayResults(cfg, results)
   })
 
 cmd.parse(process.argv)

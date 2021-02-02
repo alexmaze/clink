@@ -2,7 +2,7 @@ import * as fs from "fs"
 import * as path from "path"
 import * as prompts from "prompts"
 import { parse } from "yaml"
-import { logTitle } from "display"
+import { logTitle } from "./display"
 
 export interface IConfig {
   workDir: string // 配置文件所在目录

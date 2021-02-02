@@ -1,7 +1,7 @@
 import * as ora from "ora"
 import * as path from "path"
 import * as fs from "fs"
-import { IConfig, IRule, IRuleItem } from "config"
+import { IConfig, IRule, IRuleItem } from "./config"
 
 export interface IRuleItemResult {
   item: IRuleItem
@@ -58,6 +58,10 @@ async function doExecuteRuleItem(
   const res: IRuleItemResult = {
     item: item,
     err: undefined
+  }
+
+  if (cfg.dryRun) {
+    return res
   }
 
   try {

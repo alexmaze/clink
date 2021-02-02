@@ -1,9 +1,9 @@
 {
-  "name": "config-manager",
+  "name": "clink",
   "version": "0.0.1",
   "description": "A configuration file centralized management tool.",
-  "bin": "bin/cm.js",
-  "main": "bin/cm.js",
+  "bin": "bin/clink.js",
+  "main": "bin/clink.js",
   "scripts": {
     "dev": "NODE_PATH=./src ts-node src/index.ts",
     "build": "rollup -c rollup.config.js",
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexmaze/config-manager.git"
+    "url": "git+https://github.com/alexmaze/clink.git"
   },
   "keywords": [
     "config",
@@ -24,9 +24,9 @@
   "author": "Alex Yan <yanhao1991@gmail.com>",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/alexmaze/config-manager/issues"
+    "url": "https://github.com/alexmaze/clink/issues"
   },
-  "homepage": "https://github.com/alexmaze/config-manager#readme",
+  "homepage": "https://github.com/alexmaze/clink#readme",
   "dependencies": {
     "chalk": "^4.1.0",
     "commander": "^7.0.0",

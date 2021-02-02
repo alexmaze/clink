@@ -13,11 +13,9 @@
     "skipLibCheck": true,
     "baseUrl": "./src",
     "lib": ["es2015", "es2016", "es2017"],
-    "jsx": "react",
-    "outDir": ".tmp",
     "typeRoots": ["./types", "./node_modules/@types"]
   },
-  "exclude": ["node_modules", "deno"],
+  "exclude": ["node_modules"],
   "compileOnSave": false,
   "buildOnSave": false,
   "atom": { "rewriteTsconfig": false }

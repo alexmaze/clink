@@ -46,6 +46,8 @@ func (s *_Spinner) Start(msg ...string) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
+	TermActionHideCursor.Execute()
+
 	if len(msg) > 0 {
 		s.msg = msg[0]
 	}
@@ -60,15 +62,14 @@ func (s *_Spinner) Stop() {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
+	TermActionShowCursor.Execute()
+
 	if s.done != nil {
 		*s.done <- true
 	}
 }
 
 func (s *_Spinner) CheckPoint(icon Icon, iconColor Color, msg string, msgColor Color) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-
 	fmt.Printf("%v%v%v %v\n", TermActionCleanLine, TermActionToLineHead, iconColor.Color(string(icon)), msgColor.Color(msg))
 }
 

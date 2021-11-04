@@ -1,5 +1,8 @@
-.DS_Store
+.dev/
+.devcontainer/
 
+.DS_Store
 .idea
 .vscode
 .history
+.test

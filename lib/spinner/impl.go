@@ -5,12 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexmaze/clink/lib/color"
+	"github.com/alexmaze/clink/lib/icon"
 	"golang.org/x/term"
 )
-
-// SpinGap is time between spin frames, control render rate
-// ~ 10fps
-const SpinGap = time.Duration(time.Millisecond * 100)
 
 // New create a spinner
 func New(msg ...string) Spinner {
@@ -20,11 +18,12 @@ func New(msg ...string) Spinner {
 	}
 
 	return &_Spinner{
+		spinGap:            DefaultSpinGap,
 		msg:                m,
-		msgColor:           ColorReset,
+		msgColor:           color.ColorReset,
 		spinIconFrames:     DefaultSpinFrames,
 		spinIconFrameIndex: 0,
-		spinIconColor:      ColorCyan,
+		spinIconColor:      color.ColorCyan,
 	}
 }
 
@@ -35,11 +34,12 @@ type _Spinner struct {
 	lock   sync.RWMutex
 	done   *chan bool
 
+	spinGap            time.Duration
 	spinIconFrames     []string
 	spinIconFrameIndex int
-	spinIconColor      Color
+	spinIconColor      color.Color
 	msg                string
-	msgColor           Color
+	msgColor           color.Color
 }
 
 func (s *_Spinner) Start(msg ...string) Spinner {
@@ -66,21 +66,30 @@ func (s *_Spinner) Stop() {
 
 	if s.done != nil {
 		*s.done <- true
+		s.done = nil
 	}
 }
 
-func (s *_Spinner) CheckPoint(icon Icon, iconColor Color, msg string, msgColor Color) {
+func (s *_Spinner) CheckPoint(icon icon.Icon, iconColor color.Color, msg string, msgColor color.Color) {
 	fmt.Printf("%v%v%v %v\n", TermActionCleanLine, TermActionToLineHead, iconColor.Color(string(icon)), msgColor.Color(msg))
 }
 
 func (s *_Spinner) Success(msg string) {
 	s.Stop()
-	s.CheckPoint(IconCheck, ColorGreen, msg, ColorReset)
+	s.CheckPoint(icon.IconCheck, color.ColorGreen, msg, color.ColorReset)
 }
 
 func (s *_Spinner) Failed(msg string) {
 	s.Stop()
-	s.CheckPoint(IconCross, ColorRed, msg, ColorReset)
+	s.CheckPoint(icon.IconCross, color.ColorRed, msg, color.ColorReset)
+}
+
+func (s *_Spinner) Successf(format string, args ...interface{}) {
+	s.Success(fmt.Sprintf(format, args...))
+}
+
+func (s *_Spinner) Failedf(format string, args ...interface{}) {
+	s.Failed(fmt.Sprintf(format, args...))
 }
 
 func (s *_Spinner) SetMsg(msg string) Spinner {
@@ -92,7 +101,7 @@ func (s *_Spinner) SetMsg(msg string) Spinner {
 	return s
 }
 
-func (s *_Spinner) SetMsgColor(color Color) Spinner {
+func (s *_Spinner) SetMsgColor(color color.Color) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -110,11 +119,23 @@ func (s *_Spinner) SetIconFrames(frames []string) Spinner {
 	return s
 }
 
-func (s *_Spinner) SetIconColor(color Color) Spinner {
+func (s *_Spinner) SetIconColor(color color.Color) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	s.spinIconColor = color
+
+	return s
+}
+
+func (s *_Spinner) SetSpinGap(spinGap time.Duration) Spinner {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if spinGap != s.spinGap {
+		s.spinGap = spinGap
+		s.ticker.Reset(spinGap)
+	}
 
 	return s
 }
@@ -124,7 +145,7 @@ func (s *_Spinner) reset() {
 	if s.ticker != nil {
 		s.ticker.Stop()
 	}
-	s.ticker = time.NewTicker(SpinGap)
+	s.ticker = time.NewTicker(s.spinGap)
 	s.ticker.Stop()
 
 	// reset done chan
@@ -136,7 +157,7 @@ func (s *_Spinner) reset() {
 }
 
 func (s *_Spinner) run() {
-	s.ticker.Reset(SpinGap)
+	s.ticker.Reset(s.spinGap)
 
 	// 启动
 	go func() {

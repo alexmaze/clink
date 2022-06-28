@@ -8,7 +8,7 @@
 ### 使用方式
 
 ```sh
-go get github.com/alexmaze/clink
+go install github.com/alexmaze/clink
 
 # or 
 git clone git@github.com:alexmaze/clink.git
@@ -36,7 +36,7 @@ vars:
 rules:
   - name: vim 配置
     items:                      # 配置文件（夹）列表
-      - src: .src/.vimrc        # 可以使用相对路径，起始路径为 config.yaml 文件所在目录
+      - src: .src/.vimrc        # 可以使用相对路径，起始路径为 yaml 文件所在目录
         dest: /root/.vimrc      # 可以使用绝对路径
       - src: ./.vim/autoload    # 可以指定文件夹，不存在的文件夹会自动创建
         dest: ~/.vim/autoload   # 可以使用 ~ 代表当前用户的 home 目录

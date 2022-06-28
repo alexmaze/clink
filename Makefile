@@ -6,23 +6,24 @@ run:
 test:
 	go test github.com/alexmaze/clink/...
 
-c_run:
+# make crun args="-c .test/config.yaml"
+crun:
 	docker exec \
 		-i -t \
 		$(CONTAINER_NAME) \
-		go run *.go
+		go run *.go ${args}
 
-c_bash:
+cbash:
 	docker exec -i -t $(CONTAINER_NAME) /bin/bash
 
-c_create:
+ccreate:
 	docker run \
 		-t -d \
 		-h dev \
 		--name $(CONTAINER_NAME) \
 		-v $(shell pwd):/clink \
 		-w /clink \
-		golang:1.17 \
+		golang:1.18 \
 
-c_rm:
+crm:
 	docker rm -f $(CONTAINER_NAME)

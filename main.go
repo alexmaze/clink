@@ -1,9 +1,10 @@
 package main
 
 import (
-	"fmt"
-	"time"
+	"os"
+	"path"
 
+	"github.com/alexmaze/clink/config"
 	"github.com/alexmaze/clink/lib/color"
 	"github.com/alexmaze/clink/lib/icon"
 	"github.com/alexmaze/clink/lib/spinner"
@@ -49,50 +50,65 @@ func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 	}
 }
 
-var sp = spinner.New()
-
 func main() {
-	// var opts ClinkOpts
+	var opts ClinkOpts
 
-	// flag.NewFlagSet(flag.Flag{}).ParseStruct(&opts, os.Args...)
+	flag.NewFlagSet(flag.Flag{}).ParseStruct(&opts, os.Args...)
 
-	// SetupConfig(sp, opts.DryRun, opts.ConfigPath)
+	cfg := config.ReadConfig(opts.DryRun, opts.ConfigPath)
 
-	prompt := promptui.Prompt{
-		Label: "Number",
+	for _, rule := range cfg.Rules {
+		executeRule(cfg, rule)
 	}
+}
 
-	result, err := prompt.Run()
-	fmt.Println(err, result)
+func executeRule(cfg *config.Config, rule *config.Rule) {
+	sp := spinner.New()
+	sp.CheckPoint(icon.IconInfo, color.ColorCyan, "Execute rule: "+rule.Name, color.ColorReset)
 
-	confirm := promptui.Prompt{
-		Label:     "Is every ok?",
-		IsConfirm: true,
-	}
-	result, err = confirm.Run()
-	fmt.Println(err, result)
+	for _, item := range rule.Items {
 
-	sp := spinner.New().Start()
+		// backup
+		backupDest := path.Join(cfg.BackupPath, item.Destination)
 
-	stop1 := time.NewTimer(time.Second * 1)
-	stop2 := time.NewTimer(time.Second * 2)
-	stop3 := time.NewTimer(time.Second * 10)
+		sp.CheckPoint(icon.IconInfo, color.ColorCyan, "\tbackup: "+item.Destination+" to "+backupDest, color.ColorReset)
 
-OUT:
-	for {
-		select {
-		case <-stop1.C:
-			sp.SetMsg("Working on 1, 12345678901234567890123456789012345678901234567890123456789012345678901234567890")
-		case <-stop2.C:
-			sp.CheckPoint(icon.IconCheck, color.ColorBlue, "what", color.ColorPurple)
-			// sp.CheckPoint("O", spinner.ColorBlue, "what", spinner.ColorPurple)
-			sp.SetMsg("Working on 2, 12345678901234567890123456789012345678901234567890123456789012345678901234567890")
-			// sp.SetSpinGap(50 * time.Millisecond)
-		case <-stop3.C:
-			sp.Success("Everything good!")
-			sp.Success("Bye")
-			break OUT
+		err := os.MkdirAll(path.Dir(backupDest), 0755)
+		if err != nil {
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to create dir: "+item.Destination+": "+err.Error(), color.ColorReset)
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Skip it.", color.ColorReset)
+			continue
 		}
-	}
 
+		err = os.Rename(item.Destination, backupDest)
+		if err != nil {
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to backup "+item.Source+": "+err.Error(), color.ColorReset)
+
+			p := promptui.Prompt{
+				Label:     "Continue anyway",
+				IsConfirm: true,
+			}
+			_, err = p.Run()
+			if err != nil {
+				sp.Failed("Aborted")
+				os.Exit(0)
+			}
+		}
+
+		// link
+
+		err = os.MkdirAll(path.Dir(item.Destination), 0755)
+		if err != nil {
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to create dir: "+item.Destination+": "+err.Error(), color.ColorReset)
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Skip it.", color.ColorReset)
+			continue
+		}
+
+		err = os.Symlink(item.Source, item.Destination)
+		if err != nil {
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to link "+item.Source+" to "+item.Destination+": "+err.Error(), color.ColorReset)
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "Skip it.", color.ColorReset)
+		}
+		sp.CheckPoint(icon.IconCheck, color.ColorCyan, "\tlink: "+item.Source+" to "+item.Destination, color.ColorReset)
+	}
 }

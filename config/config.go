@@ -1,18 +1,25 @@
-package main
+package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/alexmaze/clink/lib/color"
 	"github.com/alexmaze/clink/lib/fileutil"
+	"github.com/alexmaze/clink/lib/icon"
 	"github.com/alexmaze/clink/lib/spinner"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
+
+// 变量查找正则
+var patternVar = regexp.MustCompile(`\${[0-9a-zA-Z_-]+}`)
 
 // ConfigFile struct to `config.yaml`
 type ConfigFile struct {
@@ -29,22 +36,22 @@ type Config struct {
 	*ConfigFile
 }
 
-// AppConfig global configs
-var AppConfig *Config
+// ReadConfig initialize global configs
+func ReadConfig(dryRun bool, configPath string) *Config {
+	sp := spinner.New()
 
-// SetupConfig initialize global configs
-func SetupConfig(sp spinner.Spinner, dryRun bool, configPath string) {
 	absConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
-		sp.Failedf("failed to resolve config path %v: %v", configPath, err)
+		sp.Failedf("Failed to resolve config path %v: %v", configPath, err)
 		os.Exit(1)
 	}
 
-	sp.Successf("Using %v", absConfigPath)
+	sp.CheckPoint(icon.IconInfo, color.ColorCyan, fmt.Sprintf("Using %v", absConfigPath), color.ColorReset)
+	// sp.Successf("Using %v", absConfigPath)
 
 	workDIR := filepath.Dir(absConfigPath)
 	backupPath := confirmBackupPath(sp)
-	configFile := readConfigFile(absConfigPath)
+	configFile := readConfigFile(sp, absConfigPath)
 
 	cfg := &Config{
 		DryRun:     dryRun,
@@ -53,11 +60,27 @@ func SetupConfig(sp spinner.Spinner, dryRun bool, configPath string) {
 		ConfigFile: configFile,
 	}
 
-	AppConfig = confirmConfig(sp, cfg)
+	bts, _ := yaml.Marshal(cfg)
+
+	sp.CheckPoint(icon.IconInfo, color.ColorGreen, fmt.Sprintf("Parsed Configuration:\n\n%v", string(bts)), color.ColorReset)
+
+	p := promptui.Prompt{
+		Label:     "Is that correct",
+		IsConfirm: true,
+	}
+	_, err = p.Run()
+	if err != nil {
+		sp.Failed("Canceled")
+		os.Exit(0)
+	}
+
+	sp.Success("Configuration confirmed!")
+
+	return cfg
 }
 
 // unmarshall yaml config file content to struct
-func readConfigFile(absPath string) (c *ConfigFile) {
+func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 	viper.SetConfigType("yaml")
 
 	f, err := os.Open(absPath)
@@ -132,11 +155,8 @@ func readConfigFile(absPath string) (c *ConfigFile) {
 	return &configFile
 }
 
-var VAR_REGEXP_PATTERN, _ = regexp.Compile(`\${[0-9a-zA-Z_-]+}`)
-
 func renderVars(vars map[string]string, str string) (content string, err error) {
-
-	matchedArgs := VAR_REGEXP_PATTERN.FindAll([]byte(str), -1)
+	matchedArgs := patternVar.FindAll([]byte(str), -1)
 
 	if len(matchedArgs) == 0 {
 		return str, nil
@@ -161,7 +181,6 @@ func renderVars(vars map[string]string, str string) (content string, err error) 
 
 // ask user to confirm original config files (if exists) backup path
 func confirmBackupPath(sp spinner.Spinner) string {
-
 	defaultPath, err := fileutil.ParsePath("", "~/.clink")
 	if err != nil {
 		defaultPath = ""
@@ -184,15 +203,15 @@ func confirmBackupPath(sp spinner.Spinner) string {
 		os.Exit(1)
 	}
 
-	return result
+	return path.Join(result, time.Now().Format("20060102_150405"))
 }
 
-// ask user to confirm variables defined in config file
-// and render config file with absolute pathes
-func confirmConfig(sp spinner.Spinner, cfg *Config) *Config {
-	bts, _ := json.MarshalIndent(cfg, "", "  ")
-	fmt.Println(string(bts))
+// // ask user to confirm variables defined in config file
+// // and render config file with absolute pathes
+// func confirmConfig(sp spinner.Spinner, cfg *Config) *Config {
+// 	bts, _ := json.MarshalIndent(cfg, "", "  ")
+// 	fmt.Println(string(bts))
 
-	// TODO render variables
-	return nil
-}
+// 	// TODO render variables
+// 	return cfg
+// }

@@ -7,4 +7,5 @@ type Icon string
 const (
 	IconCheck Icon = "✔"
 	IconCross Icon = "✘"
+	IconInfo  Icon = "!"
 )

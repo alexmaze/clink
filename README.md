@@ -10,12 +10,8 @@
 ```sh
 go install github.com/alexmaze/clink
 
-# or 
-git clone git@github.com:alexmaze/clink.git
-cd clink && make install
-
 # then
-clink <配置文件目录>/config.yaml
+clink -c <配置文件目录>/config.yaml
 ```
 
 ### 功能

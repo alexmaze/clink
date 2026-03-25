@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/alex/Dev/workspace/alex/clink -name *.yml -o -name *.yaml)",
+      "Bash(wc -l /Users/alex/Dev/workspace/alex/clink/**/*.go)",
+      "Bash(find . -type f -name *.go -o -name go.mod)",
+      "Bash(go build:*)",
+      "Bash(go test:*)"
+    ]
+  }
+}

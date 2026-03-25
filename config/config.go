@@ -15,7 +15,6 @@ import (
 	"github.com/alexmaze/clink/lib/spinner"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 )
 
 // 变量查找正则
@@ -46,26 +45,24 @@ func ReadConfig(dryRun bool, configPath string) *Config {
 		os.Exit(1)
 	}
 
-	sp.CheckPoint(icon.IconInfo, color.ColorCyan, fmt.Sprintf("Using %v", absConfigPath), color.ColorReset)
-	// sp.Successf("Using %v", absConfigPath)
+	// 1. 显示配置文件路径
+	sp.CheckPoint(icon.IconInfo, color.ColorCyan, "Using: "+absConfigPath, color.ColorReset)
 
-	workDIR := filepath.Dir(absConfigPath)
-	backupPath := confirmBackupPath(sp)
+	// 2. 读取并解析配置（带 spinner 动画）
+	sp.Start("Parsing config...")
 	configFile := readConfigFile(sp, absConfigPath)
+	sp.Stop()
+	sp.CheckPoint(icon.IconCheck, color.ColorGreen, "Config loaded", color.ColorReset)
 
-	cfg := &Config{
-		DryRun:     dryRun,
-		WorkDIR:    workDIR,
-		BackupPath: backupPath,
-		ConfigFile: configFile,
-	}
+	// 3. 友好展示配置预览（此时用户可以看清楚要操作的内容）
+	printConfigPreview(sp, configFile)
 
-	bts, _ := yaml.Marshal(cfg)
+	// 4. 询问备份路径（用户已知道要备份什么）
+	backupPath := confirmBackupPath(sp)
 
-	sp.CheckPoint(icon.IconInfo, color.ColorGreen, fmt.Sprintf("Parsed Configuration:\n\n%v", string(bts)), color.ColorReset)
-
+	// 5. 再次确认执行
 	p := promptui.Prompt{
-		Label:     "Is that correct",
+		Label:     "Proceed with linking",
 		IsConfirm: true,
 	}
 	_, err = p.Run()
@@ -74,9 +71,46 @@ func ReadConfig(dryRun bool, configPath string) *Config {
 		os.Exit(0)
 	}
 
-	sp.Success("Configuration confirmed!")
+	workDIR := filepath.Dir(absConfigPath)
+	cfg := &Config{
+		DryRun:     dryRun,
+		WorkDIR:    workDIR,
+		BackupPath: backupPath,
+		ConfigFile: configFile,
+	}
 
+	sp.Success("Ready!")
 	return cfg
+}
+
+// printConfigPreview 以人类可读格式展示配置预览，不依赖 yaml.Marshal
+func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
+	totalItems := 0
+	for _, rule := range configFile.Rules {
+		totalItems += len(rule.Items)
+	}
+
+	sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+		fmt.Sprintf("Config preview: (%d rules, %d items total)",
+			len(configFile.Rules), totalItems),
+		color.ColorReset)
+	fmt.Println()
+
+	for i, rule := range configFile.Rules {
+		fmt.Printf("  %s[%d]%s %s\n",
+			color.ColorCyan,
+			i+1,
+			color.ColorReset,
+			color.ColorWhite.Color(rule.Name))
+		for _, item := range rule.Items {
+			fmt.Printf("      • %s  %s[%s]%s\n        %s→%s  %s\n",
+				item.Source,
+				color.ColorGray, string(item.Type), color.ColorReset,
+				color.ColorGray, color.ColorReset,
+				item.Destination)
+		}
+		fmt.Println()
+	}
 }
 
 // unmarshall yaml config file content to struct
@@ -179,16 +213,19 @@ func renderVars(vars map[string]string, str string) (content string, err error) 
 	return
 }
 
-// ask user to confirm original config files (if exists) backup path
+// confirmBackupPath ask user to confirm original config files (if exists) backup path
 func confirmBackupPath(sp spinner.Spinner) string {
-	defaultPath, err := fileutil.ParsePath("", "~/.clink")
+	defaultBase, err := fileutil.ParsePath("", "~/.clink")
 	if err != nil {
-		defaultPath = ""
+		defaultBase = ""
 	}
 
+	// 生成含时间戳的建议路径，让用户直接 Enter 接受即可
+	suggestedPath := path.Join(defaultBase, time.Now().Format("20060102_150405"))
+
 	p := promptui.Prompt{
-		Label:   "Please specify your backup path",
-		Default: defaultPath,
+		Label:   "Backup existing files to",
+		Default: suggestedPath,
 	}
 
 	result, err := p.Run()
@@ -203,15 +240,5 @@ func confirmBackupPath(sp spinner.Spinner) string {
 		os.Exit(1)
 	}
 
-	return path.Join(result, time.Now().Format("20060102_150405"))
+	return result
 }
-
-// // ask user to confirm variables defined in config file
-// // and render config file with absolute pathes
-// func confirmConfig(sp spinner.Spinner, cfg *Config) *Config {
-// 	bts, _ := json.MarshalIndent(cfg, "", "  ")
-// 	fmt.Println(string(bts))
-
-// 	// TODO render variables
-// 	return cfg
-// }

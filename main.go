@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path"
 
@@ -50,6 +51,13 @@ func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 	}
 }
 
+// RuleResult holds per-rule execution statistics
+type RuleResult struct {
+	linked  int
+	skipped int
+	failed  int
+}
+
 func main() {
 	var opts ClinkOpts
 
@@ -57,58 +65,125 @@ func main() {
 
 	cfg := config.ReadConfig(opts.DryRun, opts.ConfigPath)
 
-	for _, rule := range cfg.Rules {
-		executeRule(cfg, rule)
+	totalRules := len(cfg.Rules)
+	var totalLinked, totalSkipped, totalFailed int
+
+	for i, rule := range cfg.Rules {
+		result := executeRule(cfg, rule, i+1, totalRules)
+		totalLinked += result.linked
+		totalSkipped += result.skipped
+		totalFailed += result.failed
 	}
+
+	// 执行总结
+	sp := spinner.New()
+	fmt.Println()
+	sp.Successf("Done!  %s%d linked%s,  %s%d skipped%s,  %s%d failed%s.",
+		color.ColorGreen, totalLinked, color.ColorReset,
+		color.ColorYellow, totalSkipped, color.ColorReset,
+		color.ColorRed, totalFailed, color.ColorReset)
 }
 
-func executeRule(cfg *config.Config, rule *config.Rule) {
+func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules int) RuleResult {
 	sp := spinner.New()
-	sp.CheckPoint(icon.IconInfo, color.ColorCyan, "Execute rule: "+rule.Name, color.ColorReset)
+	result := RuleResult{}
 
-	for _, item := range rule.Items {
+	totalItems := len(rule.Items)
+	sp.CheckPoint(icon.IconInfo, color.ColorCyan,
+		fmt.Sprintf("[%d/%d] %s  (%d items)", ruleIndex, totalRules, rule.Name, totalItems),
+		color.ColorReset)
 
-		// backup
+	for itemIndex, item := range rule.Items {
+		// 每个 item 处理期间启动 spinner
+		sp.Start(fmt.Sprintf("[%d/%d] processing %s ...", itemIndex+1, totalItems, item.Destination))
+
+		// ── backup ──────────────────────────────────────────────────
 		backupDest := path.Join(cfg.BackupPath, item.Destination)
 
-		sp.CheckPoint(icon.IconInfo, color.ColorCyan, "\tbackup: "+item.Destination+" to "+backupDest, color.ColorReset)
+		destExists, _ := fileutil_destExists(item.Destination)
 
-		err := os.MkdirAll(path.Dir(backupDest), 0755)
-		if err != nil {
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to create dir: "+item.Destination+": "+err.Error(), color.ColorReset)
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Skip it.", color.ColorReset)
-			continue
-		}
-
-		err = os.Rename(item.Destination, backupDest)
-		if err != nil {
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to backup "+item.Source+": "+err.Error(), color.ColorReset)
-
-			p := promptui.Prompt{
-				Label:     "Continue anyway",
-				IsConfirm: true,
-			}
-			_, err = p.Run()
+		if !destExists {
+			// 目标不存在，跳过备份
+			sp.Stop()
+			sp.CheckPoint(icon.IconInfo, color.ColorGray,
+				fmt.Sprintf("  → backup  %s  (skipped, not exist)", item.Destination),
+				color.ColorReset)
+		} else {
+			err := os.MkdirAll(path.Dir(backupDest), 0755)
 			if err != nil {
-				sp.Failed("Aborted")
-				os.Exit(0)
+				sp.Stop()
+				sp.CheckPoint(icon.IconCross, color.ColorRed,
+					fmt.Sprintf("  → backup  %s  failed to create dir: %s", item.Destination, err.Error()),
+					color.ColorReset)
+				sp.CheckPoint(icon.IconCross, color.ColorRed, "  → skip it.", color.ColorReset)
+				result.skipped++
+				continue
+			}
+
+			err = os.Rename(item.Destination, backupDest)
+			if err != nil {
+				sp.Stop()
+				sp.CheckPoint(icon.IconCross, color.ColorRed,
+					fmt.Sprintf("  → backup  %s  failed: %s", item.Destination, err.Error()),
+					color.ColorReset)
+
+				p := promptui.Prompt{
+					Label:     "Continue anyway",
+					IsConfirm: true,
+				}
+				_, confirmErr := p.Run()
+				if confirmErr != nil {
+					sp.Failed("Aborted")
+					os.Exit(0)
+				}
+			} else {
+				sp.Stop()
+				sp.CheckPoint(icon.IconCheck, color.ColorGreen,
+					fmt.Sprintf("  → backup  %s  ✔", item.Destination),
+					color.ColorReset)
+				sp.Start(fmt.Sprintf("[%d/%d] linking %s ...", itemIndex+1, totalItems, item.Destination))
 			}
 		}
 
-		// link
-
-		err = os.MkdirAll(path.Dir(item.Destination), 0755)
+		// ── link ─────────────────────────────────────────────────────
+		err := os.MkdirAll(path.Dir(item.Destination), 0755)
 		if err != nil {
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to create dir: "+item.Destination+": "+err.Error(), color.ColorReset)
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Skip it.", color.ColorReset)
+			sp.Stop()
+			sp.CheckPoint(icon.IconCross, color.ColorRed,
+				fmt.Sprintf("  → link    %s  failed to create dir: %s", item.Destination, err.Error()),
+				color.ColorReset)
+			sp.CheckPoint(icon.IconCross, color.ColorRed, "  → skip it.", color.ColorReset)
+			result.failed++
 			continue
 		}
 
 		err = os.Symlink(item.Source, item.Destination)
+		sp.Stop()
 		if err != nil {
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Failed to link "+item.Source+" to "+item.Destination+": "+err.Error(), color.ColorReset)
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "Skip it.", color.ColorReset)
+			sp.CheckPoint(icon.IconCross, color.ColorRed,
+				fmt.Sprintf("  → link    %s  →  %s  failed: %s", item.Source, item.Destination, err.Error()),
+				color.ColorReset)
+			result.failed++
+			continue
 		}
-		sp.CheckPoint(icon.IconCheck, color.ColorCyan, "\tlink: "+item.Source+" to "+item.Destination, color.ColorReset)
+
+		sp.CheckPoint(icon.IconCheck, color.ColorGreen,
+			fmt.Sprintf("  → link    %s  →  %s  ✔", item.Source, item.Destination),
+			color.ColorReset)
+		result.linked++
 	}
+
+	return result
+}
+
+// fileutil_destExists checks whether a path exists (file or symlink)
+func fileutil_destExists(p string) (bool, error) {
+	_, err := os.Lstat(p)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

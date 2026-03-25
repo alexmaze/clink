@@ -59,8 +59,8 @@ func (s *_Spinner) Start(msg ...string) Spinner {
 }
 
 func (s *_Spinner) Stop() {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	TermActionShowCursor.Execute()
 
@@ -159,18 +159,18 @@ func (s *_Spinner) reset() {
 func (s *_Spinner) run() {
 	s.ticker.Reset(s.spinGap)
 
-	// 启动
+	// 捕获当前 done channel，避免 goroutine 内通过指针访问时发生 race
+	doneCh := *s.done
+
 	go func() {
 		for {
 			select {
-			case <-*s.done:
-				s.done = nil
+			case <-doneCh:
 				return
 			case <-s.ticker.C:
 				s.render()
 			}
 		}
-
 	}()
 }
 

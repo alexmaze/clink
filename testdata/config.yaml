@@ -1,0 +1,16 @@
+vars:
+  home: /Users/alex/Dev/workspace/alex/clink/testdata/dest/home
+  v2ray_conf: /Users/alex/Dev/workspace/alex/clink/testdata/dest/home/.config/v2ray
+
+rules:
+  - name: vim 配置
+    items:
+      - src: ./dotfiles/.vimrc
+        dest: ${home}/.vimrc
+      - src: ./dotfiles/.vim/autoload
+        dest: ${home}/.vim/autoload
+
+  - name: v2ray 配置
+    items:
+      - src: ./dotfiles/v2ray/config.json
+        dest: ${v2ray_conf}/config.json

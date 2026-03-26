@@ -1,0 +1,25 @@
+FROM golang:1.25-bookworm
+
+# Install useful tools for testing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up SSH server for SSH mode tests
+RUN mkdir -p /run/sshd && \
+    echo 'root:testpassword' | chpasswd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    ssh-keygen -A
+
+WORKDIR /clink
+
+# Copy go.mod and go.sum first for layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source code
+COPY . .
+
+# Default command: run all tests with verbose output
+CMD ["go", "test", "-v", "-count=1", "-coverprofile=/tmp/coverage.out", "./..."]

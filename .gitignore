@@ -1,5 +1,7 @@
 .dev/
 .devcontainer/
+.claude/
+testdata/
 
 .DS_Store
 .idea

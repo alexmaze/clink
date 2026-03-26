@@ -22,6 +22,7 @@ var patternVar = regexp.MustCompile(`\${[0-9a-zA-Z_-]+}`)
 
 // ConfigFile struct to `config.yaml`
 type ConfigFile struct {
+	Hooks *Hooks            `mapstructure:"hooks"`
 	Vars  map[string]string `mapstructure:"vars"`
 	Rules []*Rule           `mapstructure:"rules"`
 }
@@ -96,12 +97,35 @@ func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 		color.ColorReset)
 	fmt.Println()
 
+	// 显示顶层 hooks
+	if configFile.Hooks != nil {
+		if configFile.Hooks.Pre != "" {
+			fmt.Printf("  %spre-all hook:%s  %s\n",
+				color.ColorYellow, color.ColorReset, configFile.Hooks.Pre)
+		}
+		if configFile.Hooks.Post != "" {
+			fmt.Printf("  %spost-all hook:%s %s\n",
+				color.ColorYellow, color.ColorReset, configFile.Hooks.Post)
+		}
+		fmt.Println()
+	}
+
 	for i, rule := range configFile.Rules {
 		fmt.Printf("  %s[%d]%s %s\n",
 			color.ColorCyan,
 			i+1,
 			color.ColorReset,
 			color.ColorWhite.Color(rule.Name))
+		if rule.Hooks != nil {
+			if rule.Hooks.Pre != "" {
+				fmt.Printf("      %spre-hook:%s  %s\n",
+					color.ColorYellow, color.ColorReset, rule.Hooks.Pre)
+			}
+			if rule.Hooks.Post != "" {
+				fmt.Printf("      %spost-hook:%s %s\n",
+					color.ColorYellow, color.ColorReset, rule.Hooks.Post)
+			}
+		}
 		for _, item := range rule.Items {
 			fmt.Printf("      • %s  %s[%s]%s\n        %s→%s  %s\n",
 				item.Source,

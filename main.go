@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 
 	"github.com/alexmaze/clink/config"
@@ -64,6 +65,12 @@ func main() {
 	flag.NewFlagSet(flag.Flag{}).ParseStruct(&opts, os.Args...)
 
 	cfg := config.ReadConfig(opts.DryRun, opts.ConfigPath)
+	sp := spinner.New()
+
+	// pre-all hook
+	if cfg.Hooks != nil && cfg.Hooks.Pre != "" {
+		runHook(sp, "pre-all", cfg.Hooks.Pre)
+	}
 
 	totalRules := len(cfg.Rules)
 	var totalLinked, totalSkipped, totalFailed int
@@ -75,13 +82,33 @@ func main() {
 		totalFailed += result.failed
 	}
 
+	// post-all hook
+	if cfg.Hooks != nil && cfg.Hooks.Post != "" {
+		runHook(sp, "post-all", cfg.Hooks.Post)
+	}
+
 	// 执行总结
-	sp := spinner.New()
 	fmt.Println()
 	sp.Successf("Done!  %s%d linked%s,  %s%d skipped%s,  %s%d failed%s.",
 		color.ColorGreen, totalLinked, color.ColorReset,
 		color.ColorYellow, totalSkipped, color.ColorReset,
 		color.ColorRed, totalFailed, color.ColorReset)
+}
+
+// runHook executes a shell command as a hook (pre/post). On failure it prints
+// an error message and exits the whole process with code 1.
+func runHook(sp spinner.Spinner, label, cmd string) {
+	sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+		fmt.Sprintf("  hook [%s]: %s", label, cmd), color.ColorReset)
+
+	c := exec.Command("sh", "-c", cmd)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	if err := c.Run(); err != nil {
+		sp.Failedf("hook [%s] failed: %v", label, err)
+		os.Exit(1)
+	}
 }
 
 func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules int) RuleResult {
@@ -92,6 +119,11 @@ func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules in
 	sp.CheckPoint(icon.IconInfo, color.ColorCyan,
 		fmt.Sprintf("[%d/%d] %s  (%d items)", ruleIndex, totalRules, rule.Name, totalItems),
 		color.ColorReset)
+
+	// pre-rule hook
+	if rule.Hooks != nil && rule.Hooks.Pre != "" {
+		runHook(sp, "pre", rule.Hooks.Pre)
+	}
 
 	for itemIndex, item := range rule.Items {
 		// 每个 item 处理期间启动 spinner
@@ -171,6 +203,11 @@ func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules in
 			fmt.Sprintf("  → link    %s  →  %s  ✔", item.Source, item.Destination),
 			color.ColorReset)
 		result.linked++
+	}
+
+	// post-rule hook
+	if rule.Hooks != nil && rule.Hooks.Post != "" {
+		runHook(sp, "post", rule.Hooks.Post)
 	}
 
 	return result

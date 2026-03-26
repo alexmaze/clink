@@ -2,9 +2,16 @@ package config
 
 import "github.com/alexmaze/clink/lib/fileutil"
 
+// Hooks holds pre/post shell commands for a rule or the global config
+type Hooks struct {
+	Pre  string `mapstructure:"pre"`
+	Post string `mapstructure:"post"`
+}
+
 // Rule rule
 type Rule struct {
 	Name  string      `mapstructure:"name"`
+	Hooks *Hooks      `mapstructure:"hooks"`
 	Items []*RuleItem `mapstructure:"items"`
 }
 

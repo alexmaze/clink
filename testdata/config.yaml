@@ -1,9 +1,16 @@
+hooks:
+  pre: echo '[pre-all] 准备开始链接配置文件'
+  post: echo '[post-all] 所有配置文件已链接完成'
+
 vars:
   home: /Users/alex/Dev/workspace/alex/clink/testdata/dest/home
   v2ray_conf: /Users/alex/Dev/workspace/alex/clink/testdata/dest/home/.config/v2ray
 
 rules:
   - name: vim 配置
+    hooks:
+      pre: echo '[pre-rule] 检查 vim 环境'
+      post: echo '[post-rule] vim 配置完成'
     items:
       - src: ./dotfiles/.vimrc
         dest: ${home}/.vimrc

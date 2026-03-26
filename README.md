@@ -19,18 +19,25 @@ clink -c <配置文件目录>/config.yaml
 - [x] 通过 `config.yaml` 配置文件指定配置文件位置
 - [x] 自动备份原始文件
 - [x] 支持变量，可以在 rules 的路径定义中使用变量
+- [x] 规则执行前后增加脚本 Hook 功能（例如安装软件等）
 - [ ] 增加配置文件分发模式：（本地/远程）复制模式（当前是软连接）
 - [ ] 选择历史备份进行还原
-- [ ] 规则执行前后增加脚本 Hook 功能（例如安装软件等）
 
 ### config.yaml
 
 ```yaml
+hooks:           # 顶层 hook，在所有规则执行前/后运行
+  pre: echo 'start linking'
+  post: echo 'all done'
+
 vars:
   V2RAY: /etc/v2ray
 
 rules:
   - name: vim 配置
+    hooks:       # rule 级别 hook，在该规则执行前/后运行
+      pre: brew install vim
+      post: echo 'vim ready'
     items:                      # 配置文件（夹）列表
       - src: .src/.vimrc        # 可以使用相对路径，起始路径为 yaml 文件所在目录
         dest: /root/.vimrc      # 可以使用绝对路径
@@ -41,3 +48,16 @@ rules:
       - src: ./v2ray/config.json
         dest: ${V2RAY}/config.json
 ```
+
+Hook 执行顺序：
+
+```
+pre hook (全局)
+  ↓
+[rule 1] pre hook → backup + link items → post hook
+[rule 2] pre hook → backup + link items → post hook
+  ↓
+post hook (全局)
+```
+
+> Hook 命令通过 `sh -c` 执行，若退出码非 0 则**立即中止**整个流程。

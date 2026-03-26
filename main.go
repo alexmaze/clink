@@ -2,14 +2,17 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 
 	"github.com/alexmaze/clink/config"
 	"github.com/alexmaze/clink/lib/color"
 	"github.com/alexmaze/clink/lib/icon"
 	"github.com/alexmaze/clink/lib/spinner"
+	"github.com/alexmaze/clink/lib/sshutil"
 	"github.com/cosiner/flag"
 	"github.com/manifoldco/promptui"
 )
@@ -125,82 +128,64 @@ func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules in
 		runHook(sp, "pre", rule.Hooks.Pre)
 	}
 
-	for itemIndex, item := range rule.Items {
-		// 每个 item 处理期间启动 spinner
-		sp.Start(fmt.Sprintf("[%d/%d] processing %s ...", itemIndex+1, totalItems, item.Destination))
-
-		// ── backup ──────────────────────────────────────────────────
-		backupDest := path.Join(cfg.BackupPath, item.Destination)
-
-		destExists, _ := fileutil_destExists(item.Destination)
-
-		if !destExists {
-			// 目标不存在，跳过备份
-			sp.Stop()
-			sp.CheckPoint(icon.IconInfo, color.ColorGray,
-				fmt.Sprintf("  → backup  %s  (skipped, not exist)", item.Destination),
-				color.ColorReset)
-		} else {
-			err := os.MkdirAll(path.Dir(backupDest), 0755)
-			if err != nil {
-				sp.Stop()
-				sp.CheckPoint(icon.IconCross, color.ColorRed,
-					fmt.Sprintf("  → backup  %s  failed to create dir: %s", item.Destination, err.Error()),
-					color.ColorReset)
-				sp.CheckPoint(icon.IconCross, color.ColorRed, "  → skip it.", color.ColorReset)
-				result.skipped++
-				continue
-			}
-
-			err = os.Rename(item.Destination, backupDest)
-			if err != nil {
-				sp.Stop()
-				sp.CheckPoint(icon.IconCross, color.ColorRed,
-					fmt.Sprintf("  → backup  %s  failed: %s", item.Destination, err.Error()),
-					color.ColorReset)
-
-				p := promptui.Prompt{
-					Label:     "Continue anyway",
-					IsConfirm: true,
-				}
-				_, confirmErr := p.Run()
-				if confirmErr != nil {
-					sp.Failed("Aborted")
-					os.Exit(0)
-				}
-			} else {
-				sp.Stop()
-				sp.CheckPoint(icon.IconCheck, color.ColorGreen,
-					fmt.Sprintf("  → backup  %s  ✔", item.Destination),
-					color.ColorReset)
-				sp.Start(fmt.Sprintf("[%d/%d] linking %s ...", itemIndex+1, totalItems, item.Destination))
-			}
-		}
-
-		// ── link ─────────────────────────────────────────────────────
-		err := os.MkdirAll(path.Dir(item.Destination), 0755)
-		if err != nil {
-			sp.Stop()
-			sp.CheckPoint(icon.IconCross, color.ColorRed,
-				fmt.Sprintf("  → link    %s  failed to create dir: %s", item.Destination, err.Error()),
-				color.ColorReset)
-			sp.CheckPoint(icon.IconCross, color.ColorRed, "  → skip it.", color.ColorReset)
-			result.failed++
-			continue
-		}
-
-		err = os.Symlink(item.Source, item.Destination)
+	// SSH 模式：建立连接（规则内复用同一连接）
+	var sshClient *sshutil.Client
+	if rule.Mode == config.ModeSSH {
+		srv := cfg.SSHServers[rule.SSH]
+		var err error
+		sp.Start(fmt.Sprintf("Connecting to %s@%s ...", srv.User, srv.Host))
+		sshClient, err = sshutil.NewClient(srv)
 		sp.Stop()
 		if err != nil {
 			sp.CheckPoint(icon.IconCross, color.ColorRed,
-				fmt.Sprintf("  → link    %s  →  %s  failed: %s", item.Source, item.Destination, err.Error()),
+				fmt.Sprintf("  SSH connect failed: %s", err.Error()), color.ColorReset)
+			result.failed += totalItems
+			return result
+		}
+		defer sshClient.Close()
+		sp.CheckPoint(icon.IconCheck, color.ColorGreen,
+			fmt.Sprintf("  SSH connected to %s@%s", srv.User, srv.Host), color.ColorReset)
+	}
+
+	for itemIndex, item := range rule.Items {
+		sp.Start(fmt.Sprintf("[%d/%d] processing %s ...", itemIndex+1, totalItems, item.Destination))
+
+		skipped, err := backupItem(sp, cfg, item, rule.Mode, sshClient)
+		if skipped {
+			sp.Stop()
+			result.skipped++
+			continue
+		}
+		if err != nil {
+			sp.Stop()
+			sp.CheckPoint(icon.IconCross, color.ColorRed,
+				fmt.Sprintf("  → backup  %s  failed: %s", item.Destination, err.Error()),
+				color.ColorReset)
+
+			p := promptui.Prompt{
+				Label:     "Continue anyway",
+				IsConfirm: true,
+			}
+			_, confirmErr := p.Run()
+			if confirmErr != nil {
+				sp.Failed("Aborted")
+				os.Exit(0)
+			}
+		}
+
+		err = deployItem(sp, cfg, item, rule.Mode, sshClient)
+		sp.Stop()
+		if err != nil {
+			sp.CheckPoint(icon.IconCross, color.ColorRed,
+				fmt.Sprintf("  → deploy  %s  failed: %s", item.Destination, err.Error()),
 				color.ColorReset)
 			result.failed++
 			continue
 		}
 
+		actionLabel := modeActionLabel(rule.Mode)
 		sp.CheckPoint(icon.IconCheck, color.ColorGreen,
-			fmt.Sprintf("  → link    %s  →  %s  ✔", item.Source, item.Destination),
+			fmt.Sprintf("  → %s  %s  →  %s  ✔", actionLabel, item.Source, item.Destination),
 			color.ColorReset)
 		result.linked++
 	}
@@ -211,6 +196,153 @@ func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules in
 	}
 
 	return result
+}
+
+// modeActionLabel returns a short human-readable label for the deploy action.
+func modeActionLabel(mode config.Mode) string {
+	switch mode {
+	case config.ModeCopy:
+		return "copy  "
+	case config.ModeSSH:
+		return "upload"
+	default:
+		return "link  "
+	}
+}
+
+// backupItem backs up the existing destination (if any).
+//
+//   - symlink / copy mode: os.Rename the local file into the backup directory.
+//   - ssh mode: download the remote file to the local backup directory.
+//
+// Returns (true, nil) when there is nothing to back up (destination absent).
+// Returns (false, err) on a hard backup failure that the caller should handle.
+func backupItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, mode config.Mode, client *sshutil.Client) (skipped bool, err error) {
+	backupDest := path.Join(cfg.BackupPath, item.Destination)
+
+	switch mode {
+	case config.ModeSSH:
+		exists, err := client.Exists(item.Destination)
+		if err != nil {
+			return false, fmt.Errorf("check remote: %w", err)
+		}
+		if !exists {
+			sp.Stop()
+			sp.CheckPoint(icon.IconInfo, color.ColorGray,
+				fmt.Sprintf("  → backup  %s  (skipped, not exist)", item.Destination),
+				color.ColorReset)
+			sp.Start(fmt.Sprintf("[processing] uploading %s ...", item.Destination))
+			return false, nil
+		}
+		// Download remote → local backup
+		if mkErr := os.MkdirAll(path.Dir(backupDest), 0755); mkErr != nil {
+			return false, fmt.Errorf("create backup dir: %w", mkErr)
+		}
+		if dlErr := client.Download(item.Destination, backupDest); dlErr != nil {
+			return false, fmt.Errorf("download backup: %w", dlErr)
+		}
+		sp.Stop()
+		sp.CheckPoint(icon.IconCheck, color.ColorGreen,
+			fmt.Sprintf("  → backup  %s  ✔", item.Destination),
+			color.ColorReset)
+		sp.Start(fmt.Sprintf("[processing] uploading %s ...", item.Destination))
+		return false, nil
+
+	default: // symlink or copy
+		destExists, _ := fileutil_destExists(item.Destination)
+		if !destExists {
+			sp.Stop()
+			sp.CheckPoint(icon.IconInfo, color.ColorGray,
+				fmt.Sprintf("  → backup  %s  (skipped, not exist)", item.Destination),
+				color.ColorReset)
+			sp.Start(fmt.Sprintf("[processing] deploying %s ...", item.Destination))
+			return false, nil
+		}
+		if mkErr := os.MkdirAll(path.Dir(backupDest), 0755); mkErr != nil {
+			return true, nil // skip item entirely on mkdir failure
+		}
+		if renameErr := os.Rename(item.Destination, backupDest); renameErr != nil {
+			return false, renameErr
+		}
+		sp.Stop()
+		sp.CheckPoint(icon.IconCheck, color.ColorGreen,
+			fmt.Sprintf("  → backup  %s  ✔", item.Destination),
+			color.ColorReset)
+		sp.Start(fmt.Sprintf("[processing] deploying %s ...", item.Destination))
+		return false, nil
+	}
+}
+
+// deployItem deploys the source to its destination according to the rule mode.
+func deployItem(_ spinner.Spinner, _ *config.Config, item *config.RuleItem, mode config.Mode, client *sshutil.Client) error {
+	switch mode {
+	case config.ModeCopy:
+		if err := os.MkdirAll(path.Dir(item.Destination), 0755); err != nil {
+			return fmt.Errorf("create dest dir: %w", err)
+		}
+		return copyPath(item.Source, item.Destination)
+
+	case config.ModeSSH:
+		return client.Upload(item.Source, item.Destination)
+
+	default: // symlink
+		if err := os.MkdirAll(path.Dir(item.Destination), 0755); err != nil {
+			return fmt.Errorf("create dest dir: %w", err)
+		}
+		return os.Symlink(item.Source, item.Destination)
+	}
+}
+
+// copyPath recursively copies src to dest.
+// If src is a file, dest is created/overwritten as a file.
+// If src is a directory, dest is created as a directory and all contents are copied.
+func copyPath(src, dest string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if !info.IsDir() {
+		return copyFile(src, dest)
+	}
+
+	if err := os.MkdirAll(dest, info.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcChild := filepath.Join(src, entry.Name())
+		destChild := filepath.Join(dest, entry.Name())
+		if err := copyPath(srcChild, destChild); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single regular file from src to dest.
+func copyFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }
 
 // fileutil_destExists checks whether a path exists (file or symlink)

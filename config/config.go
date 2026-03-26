@@ -22,9 +22,11 @@ var patternVar = regexp.MustCompile(`\${[0-9a-zA-Z_-]+}`)
 
 // ConfigFile struct to `config.yaml`
 type ConfigFile struct {
-	Hooks *Hooks            `mapstructure:"hooks"`
-	Vars  map[string]string `mapstructure:"vars"`
-	Rules []*Rule           `mapstructure:"rules"`
+	Mode       Mode                  `mapstructure:"mode"`
+	Hooks      *Hooks                `mapstructure:"hooks"`
+	SSHServers map[string]*SSHServer `mapstructure:"ssh_servers"`
+	Vars       map[string]string     `mapstructure:"vars"`
+	Rules      []*Rule               `mapstructure:"rules"`
 }
 
 // Config clink configs
@@ -61,9 +63,12 @@ func ReadConfig(dryRun bool, configPath string) *Config {
 	// 4. 询问备份路径（用户已知道要备份什么）
 	backupPath := confirmBackupPath(sp)
 
-	// 5. 再次确认执行
+	// 5. 对 SSH 模式中未配置密钥/密码的服务器统一 prompt 输入密码
+	promptSSHPasswords(sp, configFile)
+
+	// 6. 再次确认执行
 	p := promptui.Prompt{
-		Label:     "Proceed with linking",
+		Label:     "Proceed",
 		IsConfirm: true,
 	}
 	_, err = p.Run()
@@ -82,6 +87,38 @@ func ReadConfig(dryRun bool, configPath string) *Config {
 
 	sp.Success("Ready!")
 	return cfg
+}
+
+// promptSSHPasswords prompts for passwords for SSH servers that have no key and no password set.
+func promptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
+	// collect server names used in ssh-mode rules that need a password prompt
+	needed := map[string]bool{}
+	for _, rule := range configFile.Rules {
+		if rule.Mode != ModeSSH {
+			continue
+		}
+		srv, ok := configFile.SSHServers[rule.SSH]
+		if !ok {
+			continue
+		}
+		if srv.Key == "" && srv.Password == "" {
+			needed[rule.SSH] = true
+		}
+	}
+
+	for name := range needed {
+		srv := configFile.SSHServers[name]
+		p := promptui.Prompt{
+			Label: fmt.Sprintf("Password for %s@%s (server: %s)", srv.User, srv.Host, name),
+			Mask:  '*',
+		}
+		pwd, err := p.Run()
+		if err != nil {
+			sp.Failedf("failed to read password for server %s: %v", name, err)
+			os.Exit(1)
+		}
+		srv.Password = pwd
+	}
 }
 
 // printConfigPreview 以人类可读格式展示配置预览，不依赖 yaml.Marshal
@@ -111,11 +148,16 @@ func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 	}
 
 	for i, rule := range configFile.Rules {
-		fmt.Printf("  %s[%d]%s %s\n",
+		// 构建 mode 标签
+		modeLabel := buildModeLabel(configFile, rule)
+
+		fmt.Printf("  %s[%d]%s %s  %s[%s]%s\n",
 			color.ColorCyan,
 			i+1,
 			color.ColorReset,
-			color.ColorWhite.Color(rule.Name))
+			color.ColorWhite.Color(rule.Name),
+			color.ColorGray, modeLabel, color.ColorReset)
+
 		if rule.Hooks != nil {
 			if rule.Hooks.Pre != "" {
 				fmt.Printf("      %spre-hook:%s  %s\n",
@@ -134,6 +176,21 @@ func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 				item.Destination)
 		}
 		fmt.Println()
+	}
+}
+
+// buildModeLabel constructs the display label like "symlink", "copy", or "ssh → user@host"
+func buildModeLabel(configFile *ConfigFile, rule *Rule) string {
+	switch rule.Mode {
+	case ModeSSH:
+		if srv, ok := configFile.SSHServers[rule.SSH]; ok {
+			return fmt.Sprintf("ssh → %s@%s", srv.User, srv.Host)
+		}
+		return "ssh"
+	case ModeCopy:
+		return "copy"
+	default:
+		return "symlink"
 	}
 }
 
@@ -159,8 +216,42 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 		os.Exit(1)
 	}
 
+	workDir := filepath.Dir(absPath)
+
 	// 解析 Type, 替换绝对路径
 	for _, rule := range configFile.Rules {
+		// Mode 继承：rule 未设置则继承全局，全局也未设置则默认 symlink
+		if rule.Mode == "" {
+			if configFile.Mode != "" {
+				rule.Mode = configFile.Mode
+			} else {
+				rule.Mode = ModeSymlink
+			}
+		}
+
+		// SSH 模式：验证 server 引用，补全默认 port
+		if rule.Mode == ModeSSH {
+			if configFile.SSHServers == nil {
+				sp.Failedf("rule %q uses ssh mode but no ssh_servers defined in config", rule.Name)
+				os.Exit(1)
+			}
+			srv, ok := configFile.SSHServers[rule.SSH]
+			if !ok {
+				sp.Failedf("rule %q references unknown ssh server %q", rule.Name, rule.SSH)
+				os.Exit(1)
+			}
+			if srv.Port == 0 {
+				srv.Port = 22
+			}
+			// expand key path if provided
+			if srv.Key != "" {
+				expanded, kerr := fileutil.ParsePath("", srv.Key)
+				if kerr == nil {
+					srv.Key = expanded
+				}
+			}
+		}
+
 		for _, item := range rule.Items {
 			// src | dest 变量替换
 			item.Source, err = renderVars(configFile.Vars, item.Source)
@@ -171,22 +262,24 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 
 			item.Destination, err = renderVars(configFile.Vars, item.Destination)
 			if err != nil {
-				sp.Failedf("failed to render %v: %v", item.Source, err)
+				sp.Failedf("failed to render %v: %v", item.Destination, err)
 				os.Exit(1)
 			}
 
-			// 路径绝对化
-			workDir := filepath.Dir(absPath)
+			// src 路径绝对化（src 始终是本地路径）
 			item.Source, err = fileutil.ParsePath(workDir, item.Source)
 			if err != nil {
 				sp.Failedf("failed to standard path %v: %v", item.Source, err)
 				os.Exit(1)
 			}
 
-			item.Destination, err = fileutil.ParsePath(workDir, item.Destination)
-			if err != nil {
-				sp.Failedf("failed to standard path %v: %v", item.Destination, err)
-				os.Exit(1)
+			// dest 路径绝对化：SSH 模式下 dest 是远程路径，不做本地处理
+			if rule.Mode != ModeSSH {
+				item.Destination, err = fileutil.ParsePath(workDir, item.Destination)
+				if err != nil {
+					sp.Failedf("failed to standard path %v: %v", item.Destination, err)
+					os.Exit(1)
+				}
 			}
 
 			// 检测 src 是否存在
@@ -197,7 +290,7 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 			}
 
 			if !exists {
-				sp.Failedf("source file/folder do not exist %v: %v", item.Source, err)
+				sp.Failedf("source file/folder do not exist %v", item.Source)
 				os.Exit(1)
 			}
 

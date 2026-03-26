@@ -1,14 +1,18 @@
 # clink 配置管理器
 
+> Centralized dotfile manager — deploy configs via symlink, copy, or SSH.
+
+![Go Version](https://img.shields.io/badge/Go-1.25-blue?logo=go)
 
 使用 `clink` 可以方便的把你的配置文件集中保存，只需要在 `config.yaml` 文件中定义文件需要分发的目的地，`clink` 就可以帮你将配置文件通过软链、复制或 SSH 上传等方式部署到指定位置，并将原文件备份起来。
 
 集中存放配置文件可以让配置保存、同步更加方便，例如你可以将配置文件目录通过 `dropbox`、 `百度网盘` 等工具在多设备之间进行同步，重装电脑后也只需要下载配置文件目录后通过 `clink` 一键将配置文件应用到新的系统里。
 
-### 使用方式
+## 快速开始
 
 ```sh
-go install github.com/alexmaze/clink
+# 安装
+go install github.com/alexmaze/clink@latest
 
 # 运行全部 rules
 clink -c <配置文件目录>/config.yaml
@@ -19,7 +23,17 @@ clink -c <配置文件目录>/config.yaml -r "vim 配置"
 clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
 ```
 
-### 命令行参数
+## 功能特性
+
+- [x] 通过 `config.yaml` 配置文件指定配置文件位置
+- [x] 自动备份原始文件
+- [x] 支持变量，可在 rules 的路径定义中引用变量
+- [x] 规则执行前后支持脚本 Hook（例如安装软件等）
+- [x] 多种分发模式：`symlink`（软链接）/ `copy`（本地复制）/ `ssh`（远程 SFTP 上传）
+- [x] 通过 `-r` 参数指定只运行部分 rules
+- [ ] 选择历史备份进行还原
+
+## 命令行参数
 
 | 参数 | 说明 |
 |------|------|
@@ -27,17 +41,9 @@ clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
 | `-d, --dry-run` | 只展示变更，不实际执行 |
 | `-r, --rule` | 只运行匹配的 rule（按 1-based 序号或名称，大小写不敏感；可多次指定）|
 
-### 功能
+## 配置文件说明
 
-- [x] 通过 `config.yaml` 配置文件指定配置文件位置
-- [x] 自动备份原始文件
-- [x] 支持变量，可以在 rules 的路径定义中使用变量
-- [x] 规则执行前后增加脚本 Hook 功能（例如安装软件等）
-- [x] 增加配置文件分发模式：symlink（软链接）/ copy（本地复制）/ ssh（远程 SFTP 上传）
-- [x] 通过 `-r` 参数指定只运行部分 rules
-- [ ] 选择历史备份进行还原
-
-### config.yaml
+### config.yaml 示例
 
 ```yaml
 mode: symlink   # 全局默认模式（可选，默认 symlink；可选值：symlink / copy / ssh）
@@ -83,7 +89,7 @@ rules:
         dest: /root/.vimrc  # 远程路径，不做本地路径处理
 ```
 
-### 分发模式说明
+### 分发模式
 
 | 模式 | 说明 |
 |------|------|
@@ -94,7 +100,7 @@ rules:
 - `mode` 可在顶层设置全局默认值，rule 级别可单独覆盖
 - SSH 鉴权优先使用密钥文件（`key`），其次密码（`password`），都不填则运行前交互式 prompt
 
-Hook 执行顺序：
+## Hook 执行流程
 
 ```
 pre hook (全局)

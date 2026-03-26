@@ -21,6 +21,7 @@ type ClinkOpts struct {
 	DryRun     bool     `names:"-d, --dry-run" usage:"dry-run mode, will only display changes but will not execute"`
 	ConfigPath string   `names:"-c, --config"  usage:"specify config file path"`
 	Rules      []string `names:"-r, --rule"    usage:"only run rules matching the given name or 1-based index (can be specified multiple times)"`
+	Restore    bool     `names:"--restore"     usage:"interactively restore files from a previous backup"`
 }
 
 // Metadata command line usages
@@ -56,6 +57,10 @@ func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 			Default: []string{},
 			Desc:    `e.g. -r "vim 配置" -r 2`,
 		},
+		"--restore": {
+			Default: false,
+			Desc:    `interactively select a backup to restore`,
+		},
 	}
 }
 
@@ -71,8 +76,16 @@ func main() {
 
 	flag.NewFlagSet(flag.Flag{}).ParseStruct(&opts, os.Args...)
 
+	if opts.Restore {
+		runRestore(opts)
+		return
+	}
+
 	cfg := config.ReadConfig(opts.DryRun, opts.ConfigPath, opts.Rules)
 	sp := spinner.New()
+
+	// 快照 config.yaml 到备份目录
+	snapshotConfig(sp, cfg)
 
 	// pre-all hook
 	if cfg.Hooks != nil && cfg.Hooks.Pre != "" {
@@ -386,4 +399,19 @@ func destExists(p string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// snapshotConfig copies the original config.yaml into the backup directory so
+// that future restores know which rules/modes/SSH servers were used.
+// Failures are non-fatal — a warning is printed but the deploy continues.
+func snapshotConfig(sp spinner.Spinner, cfg *config.Config) {
+	if cfg.DryRun || cfg.ConfigPath == "" || cfg.BackupPath == "" {
+		return
+	}
+	dest := filepath.Join(cfg.BackupPath, "config.yaml")
+	if err := copyFile(cfg.ConfigPath, dest); err != nil {
+		sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+			fmt.Sprintf("Warning: failed to snapshot config.yaml: %v", err),
+			color.ColorReset)
+	}
 }

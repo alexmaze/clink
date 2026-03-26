@@ -34,6 +34,7 @@ type Config struct {
 	WorkDIR    string // path to `config.yaml`
 	DryRun     bool
 	BackupPath string
+	ConfigPath string // absolute path to the config.yaml used for this run
 
 	*ConfigFile
 }
@@ -87,6 +88,7 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 		DryRun:     dryRun,
 		WorkDIR:    workDIR,
 		BackupPath: backupPath,
+		ConfigPath: absConfigPath,
 		ConfigFile: configFile,
 	}
 
@@ -202,33 +204,34 @@ func buildModeLabel(configFile *ConfigFile, rule *Rule) string {
 	}
 }
 
-// unmarshall yaml config file content to struct
-func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
-	viper.SetConfigType("yaml")
+// ParseConfigFileOnly parses a config.yaml file and resolves mode inheritance,
+// SSH server references, and variable substitution — but skips source-file
+// existence checks.  It returns an error instead of calling os.Exit, making it
+// suitable for restoring from a config snapshot where the original sources may
+// no longer be present.
+func ParseConfigFileOnly(absPath string) (*ConfigFile, error) {
+	v := viper.New()
+	v.SetConfigType("yaml")
 
 	f, err := os.Open(absPath)
 	if err != nil {
-		sp.Failedf("failed to open config file %v: %v", absPath, err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to open config file %v: %w", absPath, err)
 	}
 	defer f.Close()
 
-	if err = viper.ReadConfig(f); err != nil {
-		sp.Failedf("failed to read config file %v: %v", absPath, err)
-		os.Exit(1)
+	if err = v.ReadConfig(f); err != nil {
+		return nil, fmt.Errorf("failed to read config file %v: %w", absPath, err)
 	}
 
 	var configFile ConfigFile
-	if err = viper.Unmarshal(&configFile); err != nil {
-		sp.Failedf("wrong config file format %v: %v", absPath, err)
-		os.Exit(1)
+	if err = v.Unmarshal(&configFile); err != nil {
+		return nil, fmt.Errorf("wrong config file format %v: %w", absPath, err)
 	}
 
 	workDir := filepath.Dir(absPath)
 
-	// 解析 Type, 替换绝对路径
 	for _, rule := range configFile.Rules {
-		// Mode 继承：rule 未设置则继承全局，全局也未设置则默认 symlink
+		// Mode 继承
 		if rule.Mode == "" {
 			if configFile.Mode != "" {
 				rule.Mode = configFile.Mode
@@ -240,18 +243,15 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 		// SSH 模式：验证 server 引用，补全默认 port
 		if rule.Mode == ModeSSH {
 			if configFile.SSHServers == nil {
-				sp.Failedf("rule %q uses ssh mode but no ssh_servers defined in config", rule.Name)
-				os.Exit(1)
+				return nil, fmt.Errorf("rule %q uses ssh mode but no ssh_servers defined in config", rule.Name)
 			}
 			srv, ok := configFile.SSHServers[rule.SSH]
 			if !ok {
-				sp.Failedf("rule %q references unknown ssh server %q", rule.Name, rule.SSH)
-				os.Exit(1)
+				return nil, fmt.Errorf("rule %q references unknown ssh server %q", rule.Name, rule.SSH)
 			}
 			if srv.Port == 0 {
 				srv.Port = 22
 			}
-			// expand key path if provided
 			if srv.Key != "" {
 				expanded, kerr := fileutil.ParsePath("", srv.Key)
 				if kerr == nil {
@@ -264,33 +264,46 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 			// src | dest 变量替换
 			item.Source, err = renderVars(configFile.Vars, item.Source)
 			if err != nil {
-				sp.Failedf("failed to render %v: %v", item.Source, err)
-				os.Exit(1)
+				return nil, fmt.Errorf("failed to render %v: %w", item.Source, err)
 			}
 
 			item.Destination, err = renderVars(configFile.Vars, item.Destination)
 			if err != nil {
-				sp.Failedf("failed to render %v: %v", item.Destination, err)
-				os.Exit(1)
+				return nil, fmt.Errorf("failed to render %v: %w", item.Destination, err)
 			}
 
-			// src 路径绝对化（src 始终是本地路径）
+			// src 路径绝对化
 			item.Source, err = fileutil.ParsePath(workDir, item.Source)
 			if err != nil {
-				sp.Failedf("failed to standard path %v: %v", item.Source, err)
-				os.Exit(1)
+				return nil, fmt.Errorf("failed to standard path %v: %w", item.Source, err)
 			}
 
 			// dest 路径绝对化：SSH 模式下 dest 是远程路径，不做本地处理
 			if rule.Mode != ModeSSH {
 				item.Destination, err = fileutil.ParsePath(workDir, item.Destination)
 				if err != nil {
-					sp.Failedf("failed to standard path %v: %v", item.Destination, err)
-					os.Exit(1)
+					return nil, fmt.Errorf("failed to standard path %v: %w", item.Destination, err)
 				}
 			}
 
-			// 检测 src 是否存在
+			// 注意：跳过 source 文件存在性和类型检测（还原场景 source 不相关）
+		}
+	}
+
+	return &configFile, nil
+}
+
+// unmarshall yaml config file content to struct
+func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
+	configFile, err := ParseConfigFileOnly(absPath)
+	if err != nil {
+		sp.Failedf("%v", err)
+		os.Exit(1)
+	}
+
+	// 额外校验：检测 source 文件是否存在并判断类型
+	for _, rule := range configFile.Rules {
+		for _, item := range rule.Items {
 			exists, err := fileutil.IsFileExists(item.Source)
 			if err != nil {
 				sp.Failedf("failed to check if source file/folder exist %v: %v", item.Source, err)
@@ -302,7 +315,6 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 				os.Exit(1)
 			}
 
-			// 判断 src 类型：文件 | 文件夹
 			item.Type, err = fileutil.GetPathType(item.Source)
 			if err != nil {
 				sp.Failedf("failed to detect path type %v: %v", item.Source, err)
@@ -311,7 +323,7 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 		}
 	}
 
-	return &configFile
+	return configFile
 }
 
 // filterRules returns the subset of rules that match any token in filter.

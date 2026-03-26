@@ -21,6 +21,15 @@ clink -c <配置文件目录>/config.yaml
 clink -c <配置文件目录>/config.yaml -r 1
 clink -c <配置文件目录>/config.yaml -r "vim 配置"
 clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
+
+# 从历史备份中还原
+clink --restore
+
+# 还原时只预览不执行
+clink --restore -d
+
+# 还原时只还原指定 rule 的文件
+clink --restore -r "vim 配置"
 ```
 
 ## 功能特性
@@ -31,7 +40,7 @@ clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
 - [x] 规则执行前后支持脚本 Hook（例如安装软件等）
 - [x] 多种分发模式：`symlink`（软链接）/ `copy`（本地复制）/ `ssh`（远程 SFTP 上传）
 - [x] 通过 `-r` 参数指定只运行部分 rules
-- [ ] 选择历史备份进行还原
+- [x] 选择历史备份进行还原（`--restore`）
 
 ## 命令行参数
 
@@ -40,6 +49,7 @@ clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
 | `-c, --config` | 指定 config.yaml 路径（默认 `./config.yaml`）|
 | `-d, --dry-run` | 只展示变更，不实际执行 |
 | `-r, --rule` | 只运行匹配的 rule（按 1-based 序号或名称，大小写不敏感；可多次指定）|
+| `--restore` | 交互式选择历史备份进行还原（可配合 `-d` 和 `-r` 使用）|
 
 ## 配置文件说明
 
@@ -99,6 +109,43 @@ rules:
 
 - `mode` 可在顶层设置全局默认值，rule 级别可单独覆盖
 - SSH 鉴权优先使用密钥文件（`key`），其次密码（`password`），都不填则运行前交互式 prompt
+
+## 备份与还原
+
+### 备份
+
+每次部署时，clink 会将目标位置的原有文件备份到 `~/.clink/<timestamp>/` 目录中。同时会保存一份当次使用的 `config.yaml` 快照，以便还原时能够还原完整的规则、模式和 SSH 信息。
+
+备份目录结构示例：
+
+```
+~/.clink/
+  20260326_150405/
+    config.yaml              ← 配置快照
+    root/.vimrc              ← 备份的原文件（路径结构与目标路径一致）
+    root/.vim/autoload/...
+  20260325_100000/
+    config.yaml
+    ...
+```
+
+### 还原
+
+使用 `clink --restore` 进入交互式还原流程：
+
+1. 扫描 `~/.clink/` 下的所有备份，按时间倒序列出
+2. 用户选择一个备份
+3. 解析配置快照，确定每个文件的还原模式（symlink/copy → 本地复制，ssh → 重新上传）
+4. 展示还原计划，用户确认后执行
+
+**注意事项：**
+
+- 还原时统一使用 **copy 模式**（不创建 symlink 指向备份目录）
+- 对于旧版本备份（无 config.yaml 快照），所有文件按 copy 模式还原到本地
+- SSH 模式的文件会通过 SFTP 重新上传到远程服务器，密码按需交互输入
+- 还原会直接覆盖目标位置的已有文件
+- 使用 `-d` 可仅预览还原计划而不执行
+- 使用 `-r` 可只还原指定规则的文件
 
 ## Hook 执行流程
 

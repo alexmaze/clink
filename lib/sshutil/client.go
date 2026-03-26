@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/alexmaze/clink/config"
 	"github.com/pkg/sftp"
@@ -36,6 +37,7 @@ func NewClient(server *config.SSHServer) (*Client, error) {
 		User:            server.User,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // acceptable for dotfile management tool
+		Timeout:         15 * time.Second,
 	}
 
 	addr := fmt.Sprintf("%s:%d", server.Host, server.Port)

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 
 	"github.com/alexmaze/clink/config"
@@ -223,7 +222,7 @@ func modeActionLabel(mode config.Mode) string {
 // Returns (true, nil) when there is nothing to back up (destination absent).
 // Returns (false, err) on a hard backup failure that the caller should handle.
 func backupItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, mode config.Mode, client *sshutil.Client) (skipped bool, err error) {
-	backupDest := path.Join(cfg.BackupPath, item.Destination)
+	backupDest := filepath.Join(cfg.BackupPath, item.Destination)
 
 	switch mode {
 	case config.ModeSSH:
@@ -239,8 +238,16 @@ func backupItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, m
 			sp.Start(fmt.Sprintf("[processing] uploading %s ...", item.Destination))
 			return false, nil
 		}
+		if cfg.DryRun {
+			sp.Stop()
+			sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+				fmt.Sprintf("  → [dry-run] would backup  %s  →  %s", item.Destination, backupDest),
+				color.ColorReset)
+			sp.Start(fmt.Sprintf("[dry-run] uploading %s ...", item.Destination))
+			return false, nil
+		}
 		// Download remote → local backup
-		if mkErr := os.MkdirAll(path.Dir(backupDest), 0755); mkErr != nil {
+		if mkErr := os.MkdirAll(filepath.Dir(backupDest), 0755); mkErr != nil {
 			return false, fmt.Errorf("create backup dir: %w", mkErr)
 		}
 		if dlErr := client.Download(item.Destination, backupDest); dlErr != nil {
@@ -254,7 +261,10 @@ func backupItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, m
 		return false, nil
 
 	default: // symlink or copy
-		destExists, _ := fileutil_destExists(item.Destination)
+		destExists, destErr := destExists(item.Destination)
+		if destErr != nil {
+			return false, fmt.Errorf("check destination: %w", destErr)
+		}
 		if !destExists {
 			sp.Stop()
 			sp.CheckPoint(icon.IconInfo, color.ColorGray,
@@ -263,8 +273,16 @@ func backupItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, m
 			sp.Start(fmt.Sprintf("[processing] deploying %s ...", item.Destination))
 			return false, nil
 		}
-		if mkErr := os.MkdirAll(path.Dir(backupDest), 0755); mkErr != nil {
-			return true, nil // skip item entirely on mkdir failure
+		if cfg.DryRun {
+			sp.Stop()
+			sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+				fmt.Sprintf("  → [dry-run] would backup  %s  →  %s", item.Destination, backupDest),
+				color.ColorReset)
+			sp.Start(fmt.Sprintf("[dry-run] deploying %s ...", item.Destination))
+			return false, nil
+		}
+		if mkErr := os.MkdirAll(filepath.Dir(backupDest), 0755); mkErr != nil {
+			return false, fmt.Errorf("create backup dir: %w", mkErr)
 		}
 		if renameErr := os.Rename(item.Destination, backupDest); renameErr != nil {
 			return false, renameErr
@@ -279,10 +297,18 @@ func backupItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, m
 }
 
 // deployItem deploys the source to its destination according to the rule mode.
-func deployItem(_ spinner.Spinner, _ *config.Config, item *config.RuleItem, mode config.Mode, client *sshutil.Client) error {
+func deployItem(sp spinner.Spinner, cfg *config.Config, item *config.RuleItem, mode config.Mode, client *sshutil.Client) error {
+	if cfg.DryRun {
+		actionLabel := modeActionLabel(mode)
+		sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+			fmt.Sprintf("  → [dry-run] would %s  %s  →  %s", actionLabel, item.Source, item.Destination),
+			color.ColorReset)
+		return nil
+	}
+
 	switch mode {
 	case config.ModeCopy:
-		if err := os.MkdirAll(path.Dir(item.Destination), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(item.Destination), 0755); err != nil {
 			return fmt.Errorf("create dest dir: %w", err)
 		}
 		return copyPath(item.Source, item.Destination)
@@ -291,7 +317,7 @@ func deployItem(_ spinner.Spinner, _ *config.Config, item *config.RuleItem, mode
 		return client.Upload(item.Source, item.Destination)
 
 	default: // symlink
-		if err := os.MkdirAll(path.Dir(item.Destination), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(item.Destination), 0755); err != nil {
 			return fmt.Errorf("create dest dir: %w", err)
 		}
 		return os.Symlink(item.Source, item.Destination)
@@ -350,8 +376,8 @@ func copyFile(src, dest string) error {
 	return out.Sync()
 }
 
-// fileutil_destExists checks whether a path exists (file or symlink)
-func fileutil_destExists(p string) (bool, error) {
+// destExists checks whether a path exists (file or symlink).
+func destExists(p string) (bool, error) {
 	_, err := os.Lstat(p)
 	if os.IsNotExist(err) {
 		return false, nil

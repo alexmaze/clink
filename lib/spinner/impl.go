@@ -17,7 +17,7 @@ func New(msg ...string) Spinner {
 		m = msg[0]
 	}
 
-	return &_Spinner{
+	return &spinner{
 		spinGap:            DefaultSpinGap,
 		msg:                m,
 		msgColor:           color.ColorReset,
@@ -27,12 +27,11 @@ func New(msg ...string) Spinner {
 	}
 }
 
-// _Spinner
-// @impl Spinner
-type _Spinner struct {
+// spinner implements the Spinner interface.
+type spinner struct {
 	ticker *time.Ticker
-	lock   sync.RWMutex
-	done   *chan bool
+	lock   sync.Mutex
+	done   chan struct{}
 
 	spinGap            time.Duration
 	spinIconFrames     []string
@@ -42,7 +41,7 @@ type _Spinner struct {
 	msgColor           color.Color
 }
 
-func (s *_Spinner) Start(msg ...string) Spinner {
+func (s *spinner) Start(msg ...string) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -58,41 +57,41 @@ func (s *_Spinner) Start(msg ...string) Spinner {
 	return s
 }
 
-func (s *_Spinner) Stop() {
+func (s *spinner) Stop() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	TermActionShowCursor.Execute()
 
 	if s.done != nil {
-		*s.done <- true
+		close(s.done)
 		s.done = nil
 	}
 }
 
-func (s *_Spinner) CheckPoint(icon icon.Icon, iconColor color.Color, msg string, msgColor color.Color) {
+func (s *spinner) CheckPoint(icon icon.Icon, iconColor color.Color, msg string, msgColor color.Color) {
 	fmt.Printf("%v%v%v %v\n", TermActionCleanLine, TermActionToLineHead, iconColor.Color(string(icon)), msgColor.Color(msg))
 }
 
-func (s *_Spinner) Success(msg string) {
+func (s *spinner) Success(msg string) {
 	s.Stop()
 	s.CheckPoint(icon.IconCheck, color.ColorGreen, msg, color.ColorReset)
 }
 
-func (s *_Spinner) Failed(msg string) {
+func (s *spinner) Failed(msg string) {
 	s.Stop()
 	s.CheckPoint(icon.IconCross, color.ColorRed, msg, color.ColorReset)
 }
 
-func (s *_Spinner) Successf(format string, args ...interface{}) {
+func (s *spinner) Successf(format string, args ...interface{}) {
 	s.Success(fmt.Sprintf(format, args...))
 }
 
-func (s *_Spinner) Failedf(format string, args ...interface{}) {
+func (s *spinner) Failedf(format string, args ...interface{}) {
 	s.Failed(fmt.Sprintf(format, args...))
 }
 
-func (s *_Spinner) SetMsg(msg string) Spinner {
+func (s *spinner) SetMsg(msg string) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -101,7 +100,7 @@ func (s *_Spinner) SetMsg(msg string) Spinner {
 	return s
 }
 
-func (s *_Spinner) SetMsgColor(color color.Color) Spinner {
+func (s *spinner) SetMsgColor(color color.Color) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -110,7 +109,7 @@ func (s *_Spinner) SetMsgColor(color color.Color) Spinner {
 	return s
 }
 
-func (s *_Spinner) SetIconFrames(frames []string) Spinner {
+func (s *spinner) SetIconFrames(frames []string) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -119,7 +118,7 @@ func (s *_Spinner) SetIconFrames(frames []string) Spinner {
 	return s
 }
 
-func (s *_Spinner) SetIconColor(color color.Color) Spinner {
+func (s *spinner) SetIconColor(color color.Color) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -128,7 +127,7 @@ func (s *_Spinner) SetIconColor(color color.Color) Spinner {
 	return s
 }
 
-func (s *_Spinner) SetSpinGap(spinGap time.Duration) Spinner {
+func (s *spinner) SetSpinGap(spinGap time.Duration) Spinner {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -140,27 +139,27 @@ func (s *_Spinner) SetSpinGap(spinGap time.Duration) Spinner {
 	return s
 }
 
-func (s *_Spinner) reset() {
-	// reset ticker
+func (s *spinner) reset() {
+	// Stop any existing ticker.
 	if s.ticker != nil {
 		s.ticker.Stop()
 	}
 	s.ticker = time.NewTicker(s.spinGap)
 	s.ticker.Stop()
 
-	// reset done chan
+	// Signal any existing goroutine to stop, then allocate a fresh channel.
 	if s.done != nil {
-		*s.done <- true
+		close(s.done)
 	}
-	newDone := make(chan bool)
-	s.done = &newDone
+	s.done = make(chan struct{})
 }
 
-func (s *_Spinner) run() {
+func (s *spinner) run() {
 	s.ticker.Reset(s.spinGap)
 
-	// 捕获当前 done channel，避免 goroutine 内通过指针访问时发生 race
-	doneCh := *s.done
+	// Capture the current done channel so the goroutine holds a stable
+	// reference; the struct field may be replaced by a subsequent reset().
+	doneCh := s.done
 
 	go func() {
 		for {
@@ -174,13 +173,14 @@ func (s *_Spinner) run() {
 	}()
 }
 
-func (s *_Spinner) render() {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+func (s *spinner) render() {
+	// Use a full write lock because newFrame() mutates spinIconFrameIndex.
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	frame := s.newFrame()
 
-	// resize frame content to fit in single line
+	// Resize frame content to fit in a single terminal line.
 	w, _, err := term.GetSize(0)
 	if err == nil {
 		if len(frame) > w {
@@ -191,7 +191,7 @@ func (s *_Spinner) render() {
 	fmt.Printf("%v%v%v", TermActionCleanLine, TermActionToLineHead, frame)
 }
 
-func (s *_Spinner) newFrame() string {
+func (s *spinner) newFrame() string {
 	s.spinIconFrameIndex++
 	if s.spinIconFrameIndex >= len(s.spinIconFrames) {
 		s.spinIconFrameIndex = 0

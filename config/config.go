@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -97,8 +96,10 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 
 // promptSSHPasswords prompts for passwords for SSH servers that have no key and no password set.
 func promptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
-	// collect server names used in ssh-mode rules that need a password prompt
-	needed := map[string]bool{}
+	// Collect server names in rule-order, preserving a deterministic prompt
+	// sequence. A seen map prevents prompting for the same server twice.
+	seen := map[string]bool{}
+	needed := []string{}
 	for _, rule := range configFile.Rules {
 		if rule.Mode != ModeSSH {
 			continue
@@ -107,12 +108,13 @@ func promptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
 		if !ok {
 			continue
 		}
-		if srv.Key == "" && srv.Password == "" {
-			needed[rule.SSH] = true
+		if srv.Key == "" && srv.Password == "" && !seen[rule.SSH] {
+			seen[rule.SSH] = true
+			needed = append(needed, rule.SSH)
 		}
 	}
 
-	for name := range needed {
+	for _, name := range needed {
 		srv := configFile.SSHServers[name]
 		p := promptui.Prompt{
 			Label: fmt.Sprintf("Password for %s@%s (server: %s)", srv.User, srv.Host, name),
@@ -395,7 +397,7 @@ func confirmBackupPath(sp spinner.Spinner) string {
 	}
 
 	// 生成含时间戳的建议路径，让用户直接 Enter 接受即可
-	suggestedPath := path.Join(defaultBase, time.Now().Format("20060102_150405"))
+	suggestedPath := filepath.Join(defaultBase, time.Now().Format("20060102_150405"))
 
 	p := promptui.Prompt{
 		Label:   "Backup existing files to",

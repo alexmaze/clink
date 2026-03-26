@@ -19,8 +19,9 @@ import (
 
 // ClinkOpts command line options
 type ClinkOpts struct {
-	DryRun     bool   `names:"-d, --dry-run" usage:"dry-run mode, will only dispaly changes but will not execute"`
-	ConfigPath string `names:"-c, --config"  usage:"specify config file path"`
+	DryRun     bool     `names:"-d, --dry-run" usage:"dry-run mode, will only display changes but will not execute"`
+	ConfigPath string   `names:"-c, --config"  usage:"specify config file path"`
+	Rules      []string `names:"-r, --rule"    usage:"only run rules matching the given name or 1-based index (can be specified multiple times)"`
 }
 
 // Metadata command line usages
@@ -52,6 +53,10 @@ func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 			Default: "./config.yaml",
 			Desc:    `e.g. -c ./config.yaml`,
 		},
+		"-r": {
+			Default: []string{},
+			Desc:    `e.g. -r "vim 配置" -r 2`,
+		},
 	}
 }
 
@@ -67,7 +72,7 @@ func main() {
 
 	flag.NewFlagSet(flag.Flag{}).ParseStruct(&opts, os.Args...)
 
-	cfg := config.ReadConfig(opts.DryRun, opts.ConfigPath)
+	cfg := config.ReadConfig(opts.DryRun, opts.ConfigPath, opts.Rules)
 	sp := spinner.New()
 
 	// pre-all hook

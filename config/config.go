@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ type Config struct {
 }
 
 // ReadConfig initialize global configs
-func ReadConfig(dryRun bool, configPath string) *Config {
+func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 	sp := spinner.New()
 
 	absConfigPath, err := filepath.Abs(configPath)
@@ -56,6 +57,11 @@ func ReadConfig(dryRun bool, configPath string) *Config {
 	configFile := readConfigFile(sp, absConfigPath)
 	sp.Stop()
 	sp.CheckPoint(icon.IconCheck, color.ColorGreen, "Config loaded", color.ColorReset)
+
+	// 2.5. 按 -r 参数过滤 rules（若指定）
+	if len(ruleFilter) > 0 {
+		configFile.Rules = filterRules(sp, configFile.Rules, ruleFilter)
+	}
 
 	// 3. 友好展示配置预览（此时用户可以看清楚要操作的内容）
 	printConfigPreview(sp, configFile)
@@ -304,6 +310,57 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 	}
 
 	return &configFile
+}
+
+// filterRules returns the subset of rules that match any token in filter.
+// Each token is either:
+//   - a 1-based numeric string ("1", "2", …) → matched by original index
+//   - a non-numeric string → matched against rule.Name (case-insensitive, exact)
+//
+// Unmatched tokens print a warning but do not abort.
+// The returned slice preserves original order and has no duplicates.
+func filterRules(sp spinner.Spinner, rules []*Rule, filter []string) []*Rule {
+	selected := make([]*Rule, 0, len(filter))
+	seen := map[int]bool{}
+
+	addRule := func(idx int) {
+		if !seen[idx] {
+			seen[idx] = true
+			selected = append(selected, rules[idx])
+		}
+	}
+
+	for _, token := range filter {
+		matched := false
+		if n, err := strconv.Atoi(token); err == nil {
+			// 1-based index
+			if n >= 1 && n <= len(rules) {
+				addRule(n - 1)
+				matched = true
+			}
+		} else {
+			// name match (case-insensitive)
+			for i, rule := range rules {
+				if strings.EqualFold(rule.Name, token) {
+					addRule(i)
+					matched = true
+				}
+			}
+		}
+		if !matched {
+			sp.CheckPoint(icon.IconInfo, color.ColorYellow,
+				fmt.Sprintf("rule not found: %q", token), color.ColorReset)
+		}
+	}
+
+	// sort selected by original index to preserve rule order
+	result := make([]*Rule, 0, len(seen))
+	for i, rule := range rules {
+		if seen[i] {
+			result = append(result, rule)
+		}
+	}
+	return result
 }
 
 func renderVars(vars map[string]string, str string) (content string, err error) {

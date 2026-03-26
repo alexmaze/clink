@@ -10,9 +10,22 @@
 ```sh
 go install github.com/alexmaze/clink
 
-# then
+# 运行全部 rules
 clink -c <配置文件目录>/config.yaml
+
+# 只运行指定 rule（按序号或名称，可多次传入）
+clink -c <配置文件目录>/config.yaml -r 1
+clink -c <配置文件目录>/config.yaml -r "vim 配置"
+clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
 ```
+
+### 命令行参数
+
+| 参数 | 说明 |
+|------|------|
+| `-c, --config` | 指定 config.yaml 路径（默认 `./config.yaml`）|
+| `-d, --dry-run` | 只展示变更，不实际执行 |
+| `-r, --rule` | 只运行匹配的 rule（按 1-based 序号或名称，大小写不敏感；可多次指定）|
 
 ### 功能
 
@@ -21,6 +34,7 @@ clink -c <配置文件目录>/config.yaml
 - [x] 支持变量，可以在 rules 的路径定义中使用变量
 - [x] 规则执行前后增加脚本 Hook 功能（例如安装软件等）
 - [x] 增加配置文件分发模式：symlink（软链接）/ copy（本地复制）/ ssh（远程 SFTP 上传）
+- [x] 通过 `-r` 参数指定只运行部分 rules
 - [ ] 选择历史备份进行还原
 
 ### config.yaml

@@ -80,6 +80,12 @@ clink --restore -d
 
 # 还原时只还原指定 rule 的文件
 clink --restore -r "vim 配置"
+
+# 检查所有配置的链接是否已正确建立（只读，不修改任何文件）
+clink --check -c <配置文件目录>/config.yaml
+
+# 只检查指定 rule
+clink --check -c <配置文件目录>/config.yaml -r "vim 配置"
 ```
 
 ## 功能特性
@@ -91,6 +97,7 @@ clink --restore -r "vim 配置"
 - [x] 多种分发模式：`symlink`（软链接）/ `copy`（本地复制）/ `ssh`（远程 SFTP 上传）
 - [x] 通过 `-r` 参数指定只运行部分 rules
 - [x] 选择历史备份进行还原（`--restore`）
+- [x] 检查所有配置的链接是否已正确建立（`--check`）
 
 ## 命令行参数
 
@@ -100,6 +107,7 @@ clink --restore -r "vim 配置"
 | `-d, --dry-run` | 只展示变更，不实际执行 |
 | `-r, --rule` | 只运行匹配的 rule（按 1-based 序号或名称，大小写不敏感；可多次指定）|
 | `--restore` | 交互式选择历史备份进行还原（可配合 `-d` 和 `-r` 使用）|
+| `--check` | 检查所有配置的链接是否已正确建立（只读，可配合 `-r` 使用）|
 
 ## 配置文件说明
 
@@ -243,6 +251,35 @@ sequenceDiagram
 - 还原会直接覆盖目标位置的已有文件
 - 使用 `-d` 可仅预览还原计划而不执行
 - 使用 `-r` 可只还原指定规则的文件
+
+## 健康检查
+
+使用 `clink --check -c <配置文件目录>/config.yaml` 可以检查所有配置的文件是否已正确部署，**不会对文件系统做任何修改**。
+
+每个 item 会报告以下三种状态之一：
+
+| 符号 | 状态 | 含义 |
+|------|------|------|
+| ✔ | OK | 已正确建立 |
+| ! | 异常 | 目标路径存在，但状态不对（如软链接指向错误的目标，或路径是普通文件而非软链接）|
+| ✘ | 缺失 | 目标路径不存在 |
+
+示例输出：
+
+```
+[1/2] vim 配置  [symlink]
+  ✔  ~/.vimrc          →  /dotfiles/config/.vimrc
+  ✘  ~/.vim            →  not found
+
+[2/2] 远程服务器配置  [ssh → root@192.168.1.1]
+  SSH connected to root@192.168.1.1
+  ✔  /root/.bashrc     →  exists on remote
+  !  /root/.vimrc      →  exists but is not a symlink
+
+Summary:  2 ✔ ok,  1 ! wrong,  1 ✘ missing,  0 errors.
+```
+
+所有 item 均正常时退出码为 **0**，有任何异常/缺失/错误时退出码为 **1**，方便在脚本或 CI 中使用。
 
 ## Hook 执行流程
 

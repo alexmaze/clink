@@ -25,6 +25,7 @@ type ClinkOpts struct {
 	ConfigPath string   `names:"-c, --config"  usage:"specify config file path"`
 	Rules      []string `names:"-r, --rule"    usage:"only run rules matching the given name or 1-based index (can be specified multiple times)"`
 	Restore    bool     `names:"--restore"     usage:"interactively restore files from a previous backup"`
+	Check      bool     `names:"--check"       usage:"check whether configured links are correctly established (read-only)"`
 }
 
 // Metadata command line usages
@@ -61,6 +62,10 @@ func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 			Default: false,
 			Desc:    `interactively select a backup to restore`,
 		},
+		"--check": {
+			Default: false,
+			Desc:    `read-only health-check; prints which items are correctly linked/copied/uploaded`,
+		},
 	}
 }
 
@@ -78,6 +83,11 @@ func main() {
 
 	if opts.Restore {
 		runRestore(opts)
+		return
+	}
+
+	if opts.Check {
+		runCheck(opts)
 		return
 	}
 

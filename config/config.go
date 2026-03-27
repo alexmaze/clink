@@ -60,7 +60,7 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 
 	// 2.5. 按 -r 参数过滤 rules（若指定）
 	if len(ruleFilter) > 0 {
-		configFile.Rules = filterRules(sp, configFile.Rules, ruleFilter)
+		configFile.Rules = FilterRules(sp, configFile.Rules, ruleFilter)
 	}
 
 	// 3. 友好展示配置预览（此时用户可以看清楚要操作的内容）
@@ -70,7 +70,7 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 	backupPath := confirmBackupPath(sp)
 
 	// 5. 对 SSH 模式中未配置密钥/密码的服务器统一 prompt 输入密码
-	promptSSHPasswords(sp, configFile)
+	PromptSSHPasswords(sp, configFile)
 
 	// 6. 再次确认执行
 	p := promptui.Prompt{
@@ -96,8 +96,8 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 	return cfg
 }
 
-// promptSSHPasswords prompts for passwords for SSH servers that have no key and no password set.
-func promptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
+// PromptSSHPasswords prompts for passwords for SSH servers that have no key and no password set.
+func PromptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
 	// Collect server names in rule-order, preserving a deterministic prompt
 	// sequence. A seen map prevents prompting for the same server twice.
 	seen := map[string]bool{}
@@ -159,7 +159,7 @@ func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 
 	for i, rule := range configFile.Rules {
 		// 构建 mode 标签
-		modeLabel := buildModeLabel(configFile, rule)
+		modeLabel := BuildModeLabel(configFile, rule)
 
 		fmt.Printf("  %s[%d]%s %s  %s[%s]%s\n",
 			color.ColorCyan,
@@ -189,8 +189,8 @@ func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 	}
 }
 
-// buildModeLabel constructs the display label like "symlink", "copy", or "ssh → user@host"
-func buildModeLabel(configFile *ConfigFile, rule *Rule) string {
+// BuildModeLabel constructs the display label like "symlink", "copy", or "ssh → user@host"
+func BuildModeLabel(configFile *ConfigFile, rule *Rule) string {
 	switch rule.Mode {
 	case ModeSSH:
 		if srv, ok := configFile.SSHServers[rule.SSH]; ok {
@@ -326,14 +326,14 @@ func readConfigFile(sp spinner.Spinner, absPath string) (c *ConfigFile) {
 	return configFile
 }
 
-// filterRules returns the subset of rules that match any token in filter.
+// FilterRules returns the subset of rules that match any token in filter.
 // Each token is either:
 //   - a 1-based numeric string ("1", "2", …) → matched by original index
 //   - a non-numeric string → matched against rule.Name (case-insensitive, exact)
 //
 // Unmatched tokens print a warning but do not abort.
 // The returned slice preserves original order and has no duplicates.
-func filterRules(sp spinner.Spinner, rules []*Rule, filter []string) []*Rule {
+func FilterRules(sp spinner.Spinner, rules []*Rule, filter []string) []*Rule {
 	selected := make([]*Rule, 0, len(filter))
 	seen := map[int]bool{}
 
@@ -429,4 +429,43 @@ func confirmBackupPath(sp spinner.Spinner) string {
 	}
 
 	return result
+}
+
+// ReadConfigForCheck parses config and prepares it for the --check command.
+// Unlike ReadConfig it does not ask for a backup path or a "Proceed" confirmation,
+// because --check is a read-only inspection and makes no changes to the filesystem.
+func ReadConfigForCheck(configPath string, ruleFilter []string) (*Config, error) {
+	sp := spinner.New()
+
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve config path %v: %w", configPath, err)
+	}
+
+	sp.CheckPoint(icon.IconInfo, color.ColorCyan, "Using: "+absConfigPath, color.ColorReset)
+
+	sp.Start("Parsing config...")
+	configFile, err := ParseConfigFileOnly(absConfigPath)
+	sp.Stop()
+	if err != nil {
+		return nil, err
+	}
+	sp.CheckPoint(icon.IconCheck, color.ColorGreen, "Config loaded", color.ColorReset)
+
+	if len(ruleFilter) > 0 {
+		configFile.Rules = FilterRules(sp, configFile.Rules, ruleFilter)
+	}
+
+	// Prompt SSH passwords for servers that need them (needed to connect during check).
+	PromptSSHPasswords(sp, configFile)
+
+	workDIR := filepath.Dir(absConfigPath)
+	cfg := &Config{
+		DryRun:     false,
+		WorkDIR:    workDIR,
+		BackupPath: "",
+		ConfigPath: absConfigPath,
+		ConfigFile: configFile,
+	}
+	return cfg, nil
 }

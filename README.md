@@ -80,6 +80,12 @@ clink --restore -d
 
 # Restore only a specific rule's files
 clink --restore -r "vim config"
+
+# Check whether all configured links are correctly established (read-only)
+clink --check -c <config-dir>/config.yaml
+
+# Check only specific rules
+clink --check -c <config-dir>/config.yaml -r "vim config"
 ```
 
 ## Features
@@ -91,6 +97,7 @@ clink --restore -r "vim config"
 - [x] Multiple deployment modes: `symlink` / `copy` / `ssh` (remote SFTP upload)
 - [x] Run only a subset of rules with the `-r` flag
 - [x] Interactive restore from backup history (`--restore`)
+- [x] Health-check to verify all configured links are correctly established (`--check`)
 
 ## CLI Flags
 
@@ -100,6 +107,7 @@ clink --restore -r "vim config"
 | `-d, --dry-run` | Preview changes without applying them |
 | `-r, --rule` | Run only matching rules (1-based index or name, case-insensitive; repeatable) |
 | `--restore` | Interactively restore from a previous backup (compatible with `-d` and `-r`) |
+| `--check` | Check whether all configured links are correctly established (read-only, compatible with `-r`) |
 
 ## Configuration
 
@@ -243,6 +251,35 @@ Run `clink --restore` to enter the interactive restore flow:
 - Restore overwrites files at the destination without merging
 - Use `-d` to preview the restore plan without applying it
 - Use `-r` to restore only the files belonging to a specific rule
+
+## Health Check
+
+Run `clink --check -c <config-dir>/config.yaml` to verify that all configured items are correctly deployed — without making any changes to the filesystem.
+
+For each item `--check` reports one of three statuses:
+
+| Symbol | Status | Meaning |
+|--------|--------|---------|
+| ✔ | OK | Correctly established |
+| ! | Wrong | Destination exists but is incorrect (e.g. symlink points to the wrong target, or the path is a regular file instead of a symlink) |
+| ✘ | Missing | Destination does not exist |
+
+Example output:
+
+```
+[1/2] vim config  [symlink]
+  ✔  ~/.vimrc          →  /dotfiles/config/.vimrc
+  ✘  ~/.vim            →  not found
+
+[2/2] remote config  [ssh → root@192.168.1.1]
+  SSH connected to root@192.168.1.1
+  ✔  /root/.bashrc     →  exists on remote
+  !  /root/.vimrc      →  exists but is not a symlink
+
+Summary:  2 ✔ ok,  1 ! wrong,  1 ✘ missing,  0 errors.
+```
+
+`--check` exits with code **0** if everything is OK, or **1** if any item is wrong, missing, or errored — making it easy to use in scripts or CI.
 
 ## Hook Execution Order
 

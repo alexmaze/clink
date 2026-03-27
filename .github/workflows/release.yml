@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # 推送 v1.0.0 这样的 tag 时触发
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许创建 GitHub Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史，供 git describe 使用
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          LDFLAGS="-X main.Version=${VERSION}"
+          mkdir -p dist
+
+          GOOS=linux   GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/clink-linux-amd64 .
+          GOOS=linux   GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/clink-linux-arm64 .
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/clink-darwin-amd64 .
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/clink-darwin-arm64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/clink-windows-amd64.exe .
+
+          # 打包为 tar.gz / zip
+          cd dist
+          tar czf clink-linux-amd64.tar.gz   clink-linux-amd64
+          tar czf clink-linux-arm64.tar.gz   clink-linux-arm64
+          tar czf clink-darwin-amd64.tar.gz  clink-darwin-amd64
+          tar czf clink-darwin-arm64.tar.gz  clink-darwin-arm64
+          zip      clink-windows-amd64.zip   clink-windows-amd64.exe
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.VERSION }}
+          generate_release_notes: true   # 自动生成 changelog
+          files: |
+            dist/*.tar.gz
+            dist/*.zip

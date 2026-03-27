@@ -16,6 +16,9 @@ import (
 	"github.com/manifoldco/promptui"
 )
 
+// Version is set at build time via -ldflags
+var Version = "dev"
+
 // ClinkOpts command line options
 type ClinkOpts struct {
 	DryRun     bool     `names:"-d, --dry-run" usage:"dry-run mode, will only display changes but will not execute"`
@@ -27,11 +30,8 @@ type ClinkOpts struct {
 // Metadata command line usages
 func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 	const (
-		usage   = "clink is a tool to help you centralized manage your configuration files or folders."
-		version = `
-		version: v0.0.1
-		`
-		desc = `
+		usage = "clink is a tool to help you centralized manage your configuration files or folders."
+		desc  = `
 		With clink, you can put all your configuration files or folders like '.bashrc', '.vim/',
 		"appconfig"... etc, in to any place you like, for example, one dropbox synced folder.
 		Then what you need to do is write a "config.yaml" to specify where those config files
@@ -43,7 +43,7 @@ func (t *ClinkOpts) Metadata() map[string]flag.Flag {
 	return map[string]flag.Flag{
 		"": {
 			Usage:   usage,
-			Version: version,
+			Version: "\n\tversion: " + Version + "\n\t",
 			Desc:    desc,
 		},
 		"-d": {

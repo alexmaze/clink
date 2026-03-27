@@ -2,19 +2,34 @@
 
 > Centralized dotfile manager — deploy configs via symlink, copy, or SSH.
 
-![Go Version](https://img.shields.io/badge/Go-1.25-blue?logo=go)
+[![Release](https://img.shields.io/github/v/release/alexmaze/clink?logo=github)](https://github.com/alexmaze/clink/releases/latest)
+![Go Version](https://img.shields.io/github/go-mod/go-version/alexmaze/clink?logo=go)
 
 使用 `clink` 可以方便的把你的配置文件集中保存，只需要在 `config.yaml` 文件中定义文件需要分发的目的地，`clink` 就可以帮你将配置文件通过软链、复制或 SSH 上传等方式部署到指定位置，并将原文件备份起来。
 
 集中存放配置文件可以让配置保存、同步更加方便，例如你可以将配置文件目录通过 `dropbox`、 `百度网盘` 等工具在多设备之间进行同步，重装电脑后也只需要下载配置文件目录后通过 `clink` 一键将配置文件应用到新的系统里。
 
+## 安装
+
+### 方式一：go install（推荐，需要本地 Go 环境）
+
+```sh
+go install github.com/alexmaze/clink@latest
+```
+
+### 方式二：下载预编译二进制
+
+前往 [Releases 页面](https://github.com/alexmaze/clink/releases/latest) 下载对应平台的二进制文件，解压后放入 `$PATH` 即可。
+
+```sh
+# 以 macOS arm64 为例
+curl -L https://github.com/alexmaze/clink/releases/latest/download/clink-darwin-arm64.tar.gz | tar xz
+sudo mv clink-darwin-arm64 /usr/local/bin/clink
+```
+
 ## 快速开始
 
 ```sh
-# 安装
-go install github.com/alexmaze/clink@latest
-
-# 运行全部 rules
 clink -c <配置文件目录>/config.yaml
 
 # 只运行指定 rule（按序号或名称，可多次传入）

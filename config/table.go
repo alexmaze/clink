@@ -3,9 +3,9 @@ package config
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 var (
@@ -37,22 +37,22 @@ func RenderRulesTable(configFile *ConfigFile) string {
 	}
 
 	// Column widths (minimum: header lengths)
-	wIdx := utf8.RuneCountInString("#")
-	wName := utf8.RuneCountInString("Rule")
-	wMode := utf8.RuneCountInString("Mode")
-	wItems := utf8.RuneCountInString("Items")
+	wIdx := runewidth.StringWidth("#")
+	wName := runewidth.StringWidth("Rule")
+	wMode := runewidth.StringWidth("Mode")
+	wItems := runewidth.StringWidth("Items")
 
 	for _, r := range rows {
-		if n := utf8.RuneCountInString(r.idx); n > wIdx {
+		if n := runewidth.StringWidth(r.idx); n > wIdx {
 			wIdx = n
 		}
-		if n := utf8.RuneCountInString(r.name); n > wName {
+		if n := runewidth.StringWidth(r.name); n > wName {
 			wName = n
 		}
-		if n := utf8.RuneCountInString(r.mode); n > wMode {
+		if n := runewidth.StringWidth(r.mode); n > wMode {
 			wMode = n
 		}
-		if n := utf8.RuneCountInString(r.items); n > wItems {
+		if n := runewidth.StringWidth(r.items); n > wItems {
 			wItems = n
 		}
 	}
@@ -67,7 +67,7 @@ func RenderRulesTable(configFile *ConfigFile) string {
 	}
 
 	pad := func(s string, w int, rightAlign bool) string {
-		n := utf8.RuneCountInString(s)
+		n := runewidth.StringWidth(s)
 		p := w - n
 		if p < 0 {
 			p = 0

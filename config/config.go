@@ -13,7 +13,7 @@ import (
 	"github.com/alexmaze/clink/lib/fileutil"
 	"github.com/alexmaze/clink/lib/icon"
 	"github.com/alexmaze/clink/lib/spinner"
-	"github.com/manifoldco/promptui"
+	"github.com/alexmaze/clink/lib/tui"
 	"github.com/spf13/viper"
 )
 
@@ -72,13 +72,12 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 	// 5. 对 SSH 模式中未配置密钥/密码的服务器统一 prompt 输入密码
 	PromptSSHPasswords(sp, configFile)
 
-	// 6. 再次确认执行
-	p := promptui.Prompt{
-		Label:     "Proceed",
-		IsConfirm: true,
-	}
-	_, err = p.Run()
-	if err != nil {
+	// 6. 再次确认执行（带上下文边框）
+	bullets := buildConfirmBullets(configFile, backupPath)
+	if !tui.RunConfirm(tui.ConfirmOpts{
+		Title:   "即将执行以下操作",
+		Bullets: bullets,
+	}) {
 		sp.Failed("Canceled")
 		os.Exit(0)
 	}
@@ -98,8 +97,6 @@ func ReadConfig(dryRun bool, configPath string, ruleFilter []string) *Config {
 
 // PromptSSHPasswords prompts for passwords for SSH servers that have no key and no password set.
 func PromptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
-	// Collect server names in rule-order, preserving a deterministic prompt
-	// sequence. A seen map prevents prompting for the same server twice.
 	seen := map[string]bool{}
 	needed := []string{}
 	for _, rule := range configFile.Rules {
@@ -118,11 +115,8 @@ func PromptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
 
 	for _, name := range needed {
 		srv := configFile.SSHServers[name]
-		p := promptui.Prompt{
-			Label: fmt.Sprintf("Password for %s@%s (server: %s)", srv.User, srv.Host, name),
-			Mask:  '*',
-		}
-		pwd, err := p.Run()
+		label := fmt.Sprintf("Password for %s@%s (server: %s)", srv.User, srv.Host, name)
+		pwd, err := tui.RunMaskedInput(label)
 		if err != nil {
 			sp.Failedf("failed to read password for server %s: %v", name, err)
 			os.Exit(1)
@@ -131,7 +125,7 @@ func PromptSSHPasswords(sp spinner.Spinner, configFile *ConfigFile) {
 	}
 }
 
-// printConfigPreview 以人类可读格式展示配置预览，不依赖 yaml.Marshal
+// printConfigPreview 以人类可读格式展示配置预览
 func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 	totalItems := 0
 	for _, rule := range configFile.Rules {
@@ -157,36 +151,7 @@ func printConfigPreview(sp spinner.Spinner, configFile *ConfigFile) {
 		fmt.Println()
 	}
 
-	for i, rule := range configFile.Rules {
-		// 构建 mode 标签
-		modeLabel := BuildModeLabel(configFile, rule)
-
-		fmt.Printf("  %s[%d]%s %s  %s[%s]%s\n",
-			color.ColorCyan,
-			i+1,
-			color.ColorReset,
-			color.ColorWhite.Color(rule.Name),
-			color.ColorGray, modeLabel, color.ColorReset)
-
-		if rule.Hooks != nil {
-			if rule.Hooks.Pre != "" {
-				fmt.Printf("      %spre-hook:%s  %s\n",
-					color.ColorYellow, color.ColorReset, rule.Hooks.Pre)
-			}
-			if rule.Hooks.Post != "" {
-				fmt.Printf("      %spost-hook:%s %s\n",
-					color.ColorYellow, color.ColorReset, rule.Hooks.Post)
-			}
-		}
-		for _, item := range rule.Items {
-			fmt.Printf("      • %s  %s[%s]%s\n        %s→%s  %s\n",
-				item.Source,
-				color.ColorGray, string(item.Type), color.ColorReset,
-				color.ColorGray, color.ColorReset,
-				item.Destination)
-		}
-		fmt.Println()
-	}
+	fmt.Print(RenderRulesTable(configFile))
 }
 
 // BuildModeLabel constructs the display label like "symlink", "copy", or "ssh → user@host"
@@ -408,15 +373,9 @@ func confirmBackupPath(sp spinner.Spinner) string {
 		defaultBase = ""
 	}
 
-	// 生成含时间戳的建议路径，让用户直接 Enter 接受即可
 	suggestedPath := filepath.Join(defaultBase, time.Now().Format("20060102_150405"))
 
-	p := promptui.Prompt{
-		Label:   "Backup existing files to",
-		Default: suggestedPath,
-	}
-
-	result, err := p.Run()
+	result, err := tui.RunInput("备份原有文件到", suggestedPath)
 	if err != nil {
 		sp.Failedf("failed to get backup path %v", err)
 		os.Exit(1)
@@ -429,6 +388,46 @@ func confirmBackupPath(sp spinner.Spinner) string {
 	}
 
 	return result
+}
+
+// buildConfirmBullets returns the bullet lines shown in the confirm box.
+func buildConfirmBullets(configFile *ConfigFile, backupPath string) []string {
+	// Count items by mode
+	countByMode := map[Mode]int{}
+	for _, rule := range configFile.Rules {
+		for range rule.Items {
+			countByMode[rule.Mode]++
+		}
+	}
+	totalItems := 0
+	var modeParts []string
+	for _, mode := range []Mode{ModeSymlink, ModeCopy, ModeSSH} {
+		n := countByMode[mode]
+		if n > 0 {
+			totalItems += n
+			modeParts = append(modeParts, fmt.Sprintf("%s×%d", string(mode), n))
+		}
+	}
+	itemLine := fmt.Sprintf("部署 %d 个 item (%s)", totalItems, strings.Join(modeParts, ", "))
+
+	bullets := []string{itemLine}
+
+	if backupPath != "" {
+		bullets = append(bullets, fmt.Sprintf("备份原文件到 %s", backupPath))
+	}
+
+	// List SSH servers involved
+	sshSeen := map[string]bool{}
+	for _, rule := range configFile.Rules {
+		if rule.Mode == ModeSSH && !sshSeen[rule.SSH] {
+			sshSeen[rule.SSH] = true
+			if srv, ok := configFile.SSHServers[rule.SSH]; ok {
+				bullets = append(bullets, fmt.Sprintf("SSH 服务器: %s (%s@%s)", rule.SSH, srv.User, srv.Host))
+			}
+		}
+	}
+
+	return bullets
 }
 
 // ReadConfigForCheck parses config and prepares it for the --check command.

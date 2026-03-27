@@ -12,8 +12,8 @@ import (
 	"github.com/alexmaze/clink/lib/icon"
 	"github.com/alexmaze/clink/lib/spinner"
 	"github.com/alexmaze/clink/lib/sshutil"
+	"github.com/alexmaze/clink/lib/tui"
 	"github.com/cosiner/flag"
-	"github.com/manifoldco/promptui"
 )
 
 // Version is set at build time via -ldflags
@@ -189,12 +189,10 @@ func executeRule(cfg *config.Config, rule *config.Rule, ruleIndex, totalRules in
 				fmt.Sprintf("  → backup  %s  failed: %s", item.Destination, err.Error()),
 				color.ColorReset)
 
-			p := promptui.Prompt{
-				Label:     "Continue anyway",
-				IsConfirm: true,
-			}
-			_, confirmErr := p.Run()
-			if confirmErr != nil {
+			if !tui.RunConfirm(tui.ConfirmOpts{
+				Title:   "备份失败",
+				Bullets: []string{fmt.Sprintf("跳过 %s 并继续部署？", item.Destination)},
+			}) {
 				sp.Failed("Aborted")
 				os.Exit(0)
 			}

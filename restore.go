@@ -15,7 +15,7 @@ import (
 	"github.com/alexmaze/clink/lib/icon"
 	"github.com/alexmaze/clink/lib/spinner"
 	"github.com/alexmaze/clink/lib/sshutil"
-	"github.com/manifoldco/promptui"
+	"github.com/alexmaze/clink/lib/tui"
 )
 
 // BackupEntry represents a single timestamped backup directory under ~/.clink/.
@@ -125,11 +125,13 @@ func runRestore(opts ClinkOpts) {
 	}
 
 	// 8. Confirm
-	p := promptui.Prompt{
-		Label:     "Proceed with restore",
-		IsConfirm: true,
-	}
-	if _, confirmErr := p.Run(); confirmErr != nil {
+	if !tui.RunConfirm(tui.ConfirmOpts{
+		Title: "即将还原以下文件",
+		Bullets: []string{
+			fmt.Sprintf("从备份 %s 还原 %d 个文件",
+				selected.Timestamp.Format("2006-01-02 15:04:05"), len(items)),
+		},
+	}) {
 		sp.Failed("Canceled")
 		os.Exit(0)
 	}
@@ -209,7 +211,7 @@ func countFiles(dir string, hasConfig bool) int {
 	return count
 }
 
-// promptBackupSelection presents a promptui.Select for the user to pick a backup.
+// promptBackupSelection presents a list for the user to pick a backup.
 func promptBackupSelection(backups []BackupEntry) (BackupEntry, error) {
 	items := make([]string, len(backups))
 	for i, b := range backups {
@@ -222,13 +224,7 @@ func promptBackupSelection(backups []BackupEntry) (BackupEntry, error) {
 			b.FileCount, configTag)
 	}
 
-	sel := promptui.Select{
-		Label: "Select a backup to restore",
-		Items: items,
-		Size:  10,
-	}
-
-	idx, _, err := sel.Run()
+	idx, err := tui.RunSelect("Select a backup to restore", items)
 	if err != nil {
 		return BackupEntry{}, err
 	}
@@ -507,11 +503,8 @@ func executeRestore(sp spinner.Spinner, items []RestoreItem, configFile *config.
 
 		// Prompt password if needed
 		if srv.Key == "" && srv.Password == "" {
-			p := promptui.Prompt{
-				Label: fmt.Sprintf("Password for %s@%s (server: %s)", srv.User, srv.Host, sg.serverKey),
-				Mask:  '*',
-			}
-			pwd, err := p.Run()
+			label := fmt.Sprintf("Password for %s@%s (server: %s)", srv.User, srv.Host, sg.serverKey)
+			pwd, err := tui.RunMaskedInput(label)
 			if err != nil {
 				sp.Failedf("Failed to read password for server %s: %v", sg.serverKey, err)
 				for range sg.items {
@@ -530,12 +523,10 @@ func executeRestore(sp spinner.Spinner, items []RestoreItem, configFile *config.
 				fmt.Sprintf("  → SSH connect failed: %s", err.Error()),
 				color.ColorReset)
 
-			// Ask whether to continue
-			cp := promptui.Prompt{
-				Label:     "Continue anyway",
-				IsConfirm: true,
-			}
-			if _, confirmErr := cp.Run(); confirmErr != nil {
+			if !tui.RunConfirm(tui.ConfirmOpts{
+				Title:   "SSH 连接失败",
+				Bullets: []string{fmt.Sprintf("跳过 %s 的 %d 个文件并继续？", sg.serverKey, len(sg.items))},
+			}) {
 				sp.Failed("Aborted")
 				os.Exit(0)
 			}

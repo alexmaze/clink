@@ -32,8 +32,8 @@ var SampleSpinFrames3 = []string{"..  ", " .. ", "  ..", "   .", ".   "}
 var SampleSpinFrames4 = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
 var SampleSpinFrames5 = []string{"✵", "✴", "✳", "✶", "✷"}
 
-// DefaultSpinFrames default spin icon frames
-var DefaultSpinFrames = SampleSpinFrames1
+// DefaultSpinFrames default spin icon frames (dots from charmbracelet/bubbles)
+var DefaultSpinFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 
 // DefaultMsg default spin msg
 var DefaultMsg = "Working..."

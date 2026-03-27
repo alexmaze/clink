@@ -7,8 +7,12 @@ import (
 
 	"github.com/alexmaze/clink/lib/color"
 	"github.com/alexmaze/clink/lib/icon"
+	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 )
+
+// spinnerLipglossStyle is the lipgloss style used to colour the spinning frame.
+var spinnerLipglossStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // bright cyan
 
 // New create a spinner
 func New(msg ...string) Spinner {
@@ -198,5 +202,6 @@ func (s *spinner) newFrame() string {
 	}
 
 	spinIconFrame := s.spinIconFrames[s.spinIconFrameIndex]
-	return fmt.Sprintf("%s %s", s.spinIconColor.Color(spinIconFrame), s.msgColor.Color(s.msg))
+	// Use lipgloss for the spinner icon; keep legacy color.Color for the message.
+	return fmt.Sprintf("%s %s", spinnerLipglossStyle.Render(spinIconFrame), s.msgColor.Color(s.msg))
 }

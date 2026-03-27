@@ -1,176 +1,258 @@
-# clink 配置管理器
+[中文](./README.zh.md)
+
+# clink — Dotfile Manager
 
 > Centralized dotfile manager — deploy configs via symlink, copy, or SSH.
 
 [![Release](https://img.shields.io/github/v/release/alexmaze/clink?logo=github)](https://github.com/alexmaze/clink/releases/latest)
 ![Go Version](https://img.shields.io/github/go-mod/go-version/alexmaze/clink?logo=go)
 
-使用 `clink` 可以方便的把你的配置文件集中保存，只需要在 `config.yaml` 文件中定义文件需要分发的目的地，`clink` 就可以帮你将配置文件通过软链、复制或 SSH 上传等方式部署到指定位置，并将原文件备份起来。
+`clink` lets you store all your config files in one place. Define deployment destinations in a `config.yaml` file and `clink` will deploy each file to the right location via symlink, copy, or SSH upload — while automatically backing up whatever was there before.
 
-集中存放配置文件可以让配置保存、同步更加方便，例如你可以将配置文件目录通过 `dropbox`、 `百度网盘` 等工具在多设备之间进行同步，重装电脑后也只需要下载配置文件目录后通过 `clink` 一键将配置文件应用到新的系统里。
+Centralizing your dotfiles makes saving and syncing them effortless. For example, you can sync your config directory across devices with Dropbox or any other sync tool. After a fresh OS install, just download your config directory and run `clink` to restore everything in one shot.
 
-## 安装
+```mermaid
+flowchart LR
+    subgraph dotfiles["📁 Config directory (cloud-synced)"]
+        cfg["config.yaml"]
+        f1[".vimrc"]
+        f2[".zshrc"]
+        f3["v2ray/config.json"]
+        f4["dotfiles/.vimrc"]
+    end
 
-### 方式一：go install（推荐，需要本地 Go 环境）
+    clink(["⚙️ clink"])
+
+    subgraph local["🖥️ Local machine"]
+        t1["~/.vimrc\n(symlink)"]
+        t2["~/.zshrc\n(symlink)"]
+        t3["/etc/v2ray/config.json\n(copy)"]
+    end
+
+    subgraph remote["🌐 Remote server"]
+        t4["/root/.vimrc\n(ssh)"]
+    end
+
+    cfg -->|"defines rules"| clink
+    f1 --> clink
+    f2 --> clink
+    f3 --> clink
+    f4 --> clink
+    clink -->|"symlink"| t1
+    clink -->|"symlink"| t2
+    clink -->|"copy"| t3
+    clink -->|"SFTP upload"| t4
+```
+
+## Installation
+
+### Option 1: go install (recommended — requires a local Go environment)
 
 ```sh
 go install github.com/alexmaze/clink@latest
 ```
 
-### 方式二：下载预编译二进制
+### Option 2: Download a pre-built binary
 
-前往 [Releases 页面](https://github.com/alexmaze/clink/releases/latest) 下载对应平台的二进制文件，解压后放入 `$PATH` 即可。
+Go to the [Releases page](https://github.com/alexmaze/clink/releases/latest), download the binary for your platform, and place it somewhere on your `$PATH`.
 
 ```sh
-# 以 macOS arm64 为例
+# Example: macOS arm64
 curl -L https://github.com/alexmaze/clink/releases/latest/download/clink-darwin-arm64.tar.gz | tar xz
 sudo mv clink-darwin-arm64 /usr/local/bin/clink
 ```
 
-## 快速开始
+## Quick Start
 
 ```sh
-clink -c <配置文件目录>/config.yaml
+clink -c <config-dir>/config.yaml
 
-# 只运行指定 rule（按序号或名称，可多次传入）
-clink -c <配置文件目录>/config.yaml -r 1
-clink -c <配置文件目录>/config.yaml -r "vim 配置"
-clink -c <配置文件目录>/config.yaml -r 1 -r "v2ray 配置"
+# Run only specific rules (by index or name; repeatable)
+clink -c <config-dir>/config.yaml -r 1
+clink -c <config-dir>/config.yaml -r "vim config"
+clink -c <config-dir>/config.yaml -r 1 -r "v2ray config"
 
-# 从历史备份中还原
+# Restore from a previous backup
 clink --restore
 
-# 还原时只预览不执行
+# Preview a restore without applying it
 clink --restore -d
 
-# 还原时只还原指定 rule 的文件
-clink --restore -r "vim 配置"
+# Restore only a specific rule's files
+clink --restore -r "vim config"
 ```
 
-## 功能特性
+## Features
 
-- [x] 通过 `config.yaml` 配置文件指定配置文件位置
-- [x] 自动备份原始文件
-- [x] 支持变量，可在 rules 的路径定义中引用变量
-- [x] 规则执行前后支持脚本 Hook（例如安装软件等）
-- [x] 多种分发模式：`symlink`（软链接）/ `copy`（本地复制）/ `ssh`（远程 SFTP 上传）
-- [x] 通过 `-r` 参数指定只运行部分 rules
-- [x] 选择历史备份进行还原（`--restore`）
+- [x] Specify config file locations via `config.yaml`
+- [x] Automatic backup of existing files before deployment
+- [x] Variable support — reference variables in rule path definitions
+- [x] Pre/post script hooks per rule and globally (e.g. install software)
+- [x] Multiple deployment modes: `symlink` / `copy` / `ssh` (remote SFTP upload)
+- [x] Run only a subset of rules with the `-r` flag
+- [x] Interactive restore from backup history (`--restore`)
 
-## 命令行参数
+## CLI Flags
 
-| 参数 | 说明 |
-|------|------|
-| `-c, --config` | 指定 config.yaml 路径（默认 `./config.yaml`）|
-| `-d, --dry-run` | 只展示变更，不实际执行 |
-| `-r, --rule` | 只运行匹配的 rule（按 1-based 序号或名称，大小写不敏感；可多次指定）|
-| `--restore` | 交互式选择历史备份进行还原（可配合 `-d` 和 `-r` 使用）|
+| Flag | Description |
+|------|-------------|
+| `-c, --config` | Path to `config.yaml` (default: `./config.yaml`) |
+| `-d, --dry-run` | Preview changes without applying them |
+| `-r, --rule` | Run only matching rules (1-based index or name, case-insensitive; repeatable) |
+| `--restore` | Interactively restore from a previous backup (compatible with `-d` and `-r`) |
 
-## 配置文件说明
+## Configuration
 
-### config.yaml 示例
+### config.yaml example
 
 ```yaml
-mode: symlink   # 全局默认模式（可选，默认 symlink；可选值：symlink / copy / ssh）
+mode: symlink   # Global default mode (optional; default: symlink; values: symlink / copy / ssh)
 
-hooks:           # 顶层 hook，在所有规则执行前/后运行
+hooks:           # Top-level hooks — run before/after all rules
   pre: echo 'start'
   post: echo 'all done'
 
-ssh_servers:    # SSH 服务器定义（ssh 模式使用）
+ssh_servers:    # SSH server definitions (used by ssh mode)
   my-server:
     host: 192.168.1.1
-    port: 22          # 默认 22
+    port: 22          # default: 22
     user: root
-    key: ~/.ssh/id_rsa   # key 与 password 二选一；都不填则运行时 prompt 输入密码
+    key: ~/.ssh/id_rsa   # use either key or password; omit both to be prompted at runtime
     # password: secret
 
 vars:
   V2RAY: /etc/v2ray
 
 rules:
-  - name: vim 配置
-    # mode 不写则继承全局（此处为 symlink）
-    hooks:       # rule 级别 hook，在该规则执行前/后运行
+  - name: vim config
+    # omitting mode inherits the global default (symlink here)
+    hooks:       # Rule-level hooks — run before/after this rule
       pre: brew install vim
       post: echo 'vim ready'
-    items:                      # 配置文件（夹）列表
-      - src: .src/.vimrc        # 可以使用相对路径，起始路径为 yaml 文件所在目录
-        dest: /root/.vimrc      # 可以使用绝对路径
-      - src: ./.vim/autoload    # 可以指定文件夹，不存在的文件夹会自动创建
-        dest: ~/.vim/autoload   # 可以使用 ~ 代表当前用户的 home 目录
+    items:                      # List of files/directories to deploy
+      - src: .src/.vimrc        # relative paths are resolved from the yaml file's directory
+        dest: /root/.vimrc      # absolute paths are supported
+      - src: ./.vim/autoload    # directories are supported; missing parent dirs are created
+        dest: ~/.vim/autoload   # ~ expands to the current user's home directory
 
-  - name: v2ray 配置 (copy 模式)
+  - name: v2ray config (copy mode)
     mode: copy
     items:
       - src: ./v2ray/config.json
         dest: ${V2RAY}/config.json
 
-  - name: 远程服务器配置 (ssh 模式)
+  - name: remote server config (ssh mode)
     mode: ssh
-    ssh: my-server          # 引用 ssh_servers 中的 key
+    ssh: my-server          # references a key in ssh_servers
     items:
       - src: ./dotfiles/.vimrc
-        dest: /root/.vimrc  # 远程路径，不做本地路径处理
+        dest: /root/.vimrc  # remote path — no local path processing applied
 ```
 
-### 分发模式
+### Deployment Modes
 
-| 模式 | 说明 |
-|------|------|
-| `symlink`（默认） | 在目标路径创建软链接，指向源文件 |
-| `copy` | 将源文件/目录递归复制到目标路径（真实副本）|
-| `ssh` | 通过 SFTP 将源文件上传到远程服务器；旧文件会先下载到本地备份目录 |
+| Mode | Description |
+|------|-------------|
+| `symlink` (default) | Creates a symlink at the destination pointing to the source file |
+| `copy` | Recursively copies the source file/directory to the destination (a real copy) |
+| `ssh` | Uploads the source file to a remote server via SFTP; the existing remote file is downloaded to the local backup directory first |
 
-- `mode` 可在顶层设置全局默认值，rule 级别可单独覆盖
-- SSH 鉴权优先使用密钥文件（`key`），其次密码（`password`），都不填则运行前交互式 prompt
+- `mode` can be set globally at the top level; individual rules can override it
+- SSH authentication prefers a key file (`key`), then a password (`password`); if neither is set, you are prompted interactively at runtime
 
-## 备份与还原
+```mermaid
+flowchart LR
+    src["📄 Source file\n(config directory)"]
 
-### 备份
+    src --> sym["symlink mode"]
+    src --> cp["copy mode"]
+    src --> ssh["ssh mode"]
 
-每次部署时，clink 会将目标位置的原有文件备份到 `~/.clink/<timestamp>/` 目录中。同时会保存一份当次使用的 `config.yaml` 快照，以便还原时能够还原完整的规则、模式和 SSH 信息。
+    sym -->|"creates a symlink\npointing to source"| d1["🖥️ Destination\n(symbolic link)"]
+    cp  -->|"recursive copy\nreal duplicate"| d2["🖥️ Destination\n(independent copy)"]
+    ssh -->|"SFTP upload\nold file backed up first"| d3["🌐 Remote server\ndestination path"]
 
-备份目录结构示例：
+    style sym fill:#dbeafe,stroke:#3b82f6
+    style cp  fill:#dcfce7,stroke:#22c55e
+    style ssh fill:#fef9c3,stroke:#eab308
+```
+
+## Backup & Restore
+
+### Backup
+
+Each time you deploy, `clink` backs up the existing file at each destination to `~/.clink/<timestamp>/`. A snapshot of the `config.yaml` used for that run is also saved, so a restore can reconstruct the exact rules, modes, and SSH settings.
+
+Example backup directory layout:
 
 ```
 ~/.clink/
   20260326_150405/
-    config.yaml              ← 配置快照
-    root/.vimrc              ← 备份的原文件（路径结构与目标路径一致）
+    config.yaml              ← config snapshot
+    root/.vimrc              ← backed-up original (path mirrors the destination path)
     root/.vim/autoload/...
   20260325_100000/
     config.yaml
     ...
 ```
 
-### 还原
+### Backup / Restore flow
 
-使用 `clink --restore` 进入交互式还原流程：
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as clink
+    participant D as Destination
+    participant B as ~/.clink/<timestamp>/
 
-1. 扫描 `~/.clink/` 下的所有备份，按时间倒序列出
-2. 用户选择一个备份
-3. 解析配置快照，确定每个文件的还原模式（symlink/copy → 本地复制，ssh → 重新上传）
-4. 展示还原计划，用户确认后执行
+    rect rgb(219,234,254)
+        note over U,B: Deploy
+        U->>C: clink -c config.yaml
+        C->>D: Read existing file
+        D-->>B: Back up original + config.yaml snapshot
+        C->>D: Write new config (symlink / copy / ssh)
+    end
 
-**注意事项：**
+    rect rgb(220,252,231)
+        note over U,B: Restore
+        U->>C: clink --restore
+        C->>B: Scan all backup snapshots
+        B-->>U: List backups (newest first)
+        U->>C: Select a backup
+        C->>B: Read config.yaml snapshot
+        C-->>U: Show restore plan
+        U->>C: Confirm
+        C->>D: Restore files (copy / SFTP upload)
+    end
+```
 
-- 还原时统一使用 **copy 模式**（不创建 symlink 指向备份目录）
-- 对于旧版本备份（无 config.yaml 快照），所有文件按 copy 模式还原到本地
-- SSH 模式的文件会通过 SFTP 重新上传到远程服务器，密码按需交互输入
-- 还原会直接覆盖目标位置的已有文件
-- 使用 `-d` 可仅预览还原计划而不执行
-- 使用 `-r` 可只还原指定规则的文件
+### Restore
 
-## Hook 执行流程
+Run `clink --restore` to enter the interactive restore flow:
+
+1. Scans all backups under `~/.clink/` and lists them in reverse-chronological order
+2. You select a backup
+3. `clink` parses the config snapshot to determine each file's restore mode (symlink/copy → local copy; ssh → re-upload)
+4. The restore plan is displayed; execution proceeds after your confirmation
+
+**Notes:**
+
+- Restore always uses **copy mode** (no symlinks pointing into the backup directory)
+- For older backups without a `config.yaml` snapshot, all files are restored locally via copy mode
+- Files originally deployed via SSH are re-uploaded to the remote server via SFTP; passwords are prompted as needed
+- Restore overwrites files at the destination without merging
+- Use `-d` to preview the restore plan without applying it
+- Use `-r` to restore only the files belonging to a specific rule
+
+## Hook Execution Order
 
 ```
-pre hook (全局)
+pre hook (global)
   ↓
 [rule 1] pre hook → backup + deploy items → post hook
 [rule 2] pre hook → backup + deploy items → post hook
   ↓
-post hook (全局)
+post hook (global)
 ```
 
-> Hook 命令通过 `sh -c` 执行，若退出码非 0 则**立即中止**整个流程。
+> Hook commands are executed via `sh -c`. A non-zero exit code **immediately aborts** the entire run.

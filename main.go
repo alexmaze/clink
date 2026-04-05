@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -77,6 +78,23 @@ type RuleResult struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "add" {
+		opts, err := parseAddArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := runAdd(opts); err != nil {
+			if errors.Is(err, errAddCancelled) {
+				fmt.Fprintln(os.Stderr, "Canceled")
+				os.Exit(0)
+			}
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	var opts ClinkOpts
 
 	flag.NewFlagSet(flag.Flag{}).ParseStruct(&opts, os.Args...)

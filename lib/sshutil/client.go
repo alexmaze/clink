@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/alexmaze/clink/config"
+	"github.com/alexmaze/clink/internal/domain"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -27,7 +27,7 @@ type Client struct {
 // The caller is responsible for setting server.Password before calling this
 // function if neither Key nor Password is pre-configured (ReadConfig handles
 // the interactive prompt).
-func NewClient(server *config.SSHServer) (*Client, error) {
+func NewClient(server *domain.SSHServer) (*Client, error) {
 	authMethods, err := buildAuthMethods(server)
 	if err != nil {
 		return nil, fmt.Errorf("sshutil: build auth: %w", err)
@@ -77,6 +77,14 @@ func (c *Client) Exists(remotePath string) (bool, error) {
 	return false, fmt.Errorf("sshutil: stat %s: %w", remotePath, err)
 }
 
+func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
+	info, err := c.sftpClient.Stat(remotePath)
+	if err != nil {
+		return nil, fmt.Errorf("sshutil: stat %s: %w", remotePath, err)
+	}
+	return info, nil
+}
+
 // MkdirAll creates remotePath and all necessary parents on the remote host.
 func (c *Client) MkdirAll(remotePath string) error {
 	if err := c.sftpClient.MkdirAll(remotePath); err != nil {
@@ -115,7 +123,7 @@ func (c *Client) Download(remotePath, localPath string) error {
 
 // ── private helpers ──────────────────────────────────────────────────────────
 
-func buildAuthMethods(server *config.SSHServer) ([]ssh.AuthMethod, error) {
+func buildAuthMethods(server *domain.SSHServer) ([]ssh.AuthMethod, error) {
 	if server.Key != "" {
 		keyBytes, err := os.ReadFile(server.Key)
 		if err != nil {

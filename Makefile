@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 LDFLAGS = -ldflags "-X main.Version=$(VERSION)"
 
 run:
-	go run *.go
+	go run .
 
 build:
 	go build $(LDFLAGS) -o clink .
@@ -17,7 +17,6 @@ build-all:
 	GOOS=linux   GOARCH=arm64 go build $(LDFLAGS) -o dist/clink-linux-arm64 .
 	GOOS=darwin  GOARCH=amd64 go build $(LDFLAGS) -o dist/clink-darwin-amd64 .
 	GOOS=darwin  GOARCH=arm64 go build $(LDFLAGS) -o dist/clink-darwin-arm64 .
-	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o dist/clink-windows-amd64.exe .
 
 # make crun args="-c .test/config.yaml"
 crun:
